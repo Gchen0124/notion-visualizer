@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: daily-ritual-notion
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_DAILY_RITUAL_DB
+        sync: false
+      - key: NOTION_TASK_CALENDAR_DB
+        sync: false
+      - key: NOTION_WEEK_PLANNING_DB
+        sync: false
