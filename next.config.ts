@@ -1,12 +1,8 @@
 import type { NextConfig } from 'next';
-import path from 'path';
 
 const nextConfig: NextConfig = {
-  experimental: {
-    turbopack: {
-      root: path.resolve(__dirname),
-    },
-  },
+  // Turbopack is enabled by default in Next.js 15+ for dev mode
+  // No need for experimental.turbopack configuration
 };
 
 export default nextConfig;
