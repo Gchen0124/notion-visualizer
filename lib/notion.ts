@@ -6,6 +6,7 @@ if (!process.env.NOTION_API_KEY) {
 
 export const notion = new Client({
   auth: process.env.NOTION_API_KEY,
+  notionVersion: '2025-09-03',
 });
 
 export const DATABASES = {
@@ -48,42 +49,42 @@ export async function getDailyRitualYear(year: number): Promise<DailyEntry[]> {
 
     console.log(`Total fetched: ${allResults.length} pages from Notion`);
 
-    // Create a map for quick lookup, parsing date from title field
+    // Create a map for quick lookup
     const pageMap = new Map<string, any>();
     allResults.forEach((page: any) => {
-      // Parse date from title field: "date（daily ritual object）"
-      const titleProperty = page.properties['date（daily ritual object）'];
-      if (titleProperty?.title?.[0]?.plain_text) {
-        const rawTitle = titleProperty.title[0].plain_text;
-        const titleText = rawTitle.trim();
-        console.log(`Processing title: "${rawTitle}" -> trimmed: "${titleText}"`);
+      let dateStr = '';
 
-        // Try to match YYYY-MM-DD format (new format like "2025-07-22")
-        let dateStr = titleText;
-        const dashMatch = titleText.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (dashMatch) {
-          dateStr = titleText; // Already in correct format
-          console.log(`Matched dash format: ${dateStr}`);
-        } else {
-          // Try old format: "2025/5/10" -> "2025-05-10"
-          const slashMatch = titleText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-          if (slashMatch) {
-            const [_, y, m, d] = slashMatch;
-            dateStr = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-            console.log(`Matched slash format: ${titleText} -> ${dateStr}`);
+      // 1. Try to get date from "Date on Daily RItual" property (Primary Source of Truth)
+      const dateProperty = page.properties['Date on Daily RItual'];
+      if (dateProperty?.date?.start) {
+        dateStr = dateProperty.date.start;
+        console.log(`Found date from property: ${dateStr}`);
+      }
+      // 2. Fallback: Parse date from title field "date（daily ritual object）"
+      else {
+        const titleProperty = page.properties['date（daily ritual object）'];
+        if (titleProperty?.title?.[0]?.plain_text) {
+          const rawTitle = titleProperty.title[0].plain_text;
+          const titleText = rawTitle.trim();
+
+          // Try to match YYYY-MM-DD format
+          const dashMatch = titleText.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (dashMatch) {
+            dateStr = titleText;
           } else {
-            console.log(`No match for title: "${titleText}"`);
-            return; // Skip if doesn't match either format
+            // Try old format: "2025/5/10" -> "2025-05-10"
+            const slashMatch = titleText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+            if (slashMatch) {
+              const [_, y, m, d] = slashMatch;
+              dateStr = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+            }
           }
         }
+      }
 
-        // Only include if it's in the requested year
-        if (dateStr >= startDate && dateStr <= endDate) {
-          pageMap.set(dateStr, page);
-          console.log(`Mapped: ${titleText} -> ${dateStr}`);
-        } else {
-          console.log(`Skipped ${dateStr} (not in ${startDate} to ${endDate})`);
-        }
+      // Only include if we found a valid date and it's in the requested year
+      if (dateStr && dateStr >= startDate && dateStr <= endDate) {
+        pageMap.set(dateStr, page);
       }
     });
 
@@ -128,11 +129,15 @@ export async function updateDailyEntry(
   content: string
 ): Promise<{ success: boolean; pageId?: string; error?: string }> {
   try {
-    // Find existing page
+    console.log(`[updateDailyEntry] Updating ${date} type=${type} content="${content}"`);
+
+    // Find existing page using the 'date' formula field
+    // This formula field parses the date from the title, so it works for all pages
+    console.log(`[updateDailyEntry] Searching for page with date ${date}...`);
     const response: any = await notion.dataSources.query({
       data_source_id: DATABASES.DAILY_RITUAL,
       filter: {
-        property: 'Date on Daily RItual',
+        property: 'date',
         date: {
           equals: date,
         },
@@ -140,9 +145,11 @@ export async function updateDailyEntry(
       page_size: 1,
     });
 
+    console.log(`[updateDailyEntry] Found ${response.results.length} pages`);
     const existingPage = response.results[0];
 
     if (existingPage) {
+      console.log(`[updateDailyEntry] Updating existing page ${existingPage.id}`);
       // Update existing page
       await (notion as any).pages.update({
         page_id: existingPage.id,
@@ -158,6 +165,7 @@ export async function updateDailyEntry(
           },
         },
       });
+      console.log(`[updateDailyEntry] Update successful`);
 
       return { success: true, pageId: existingPage.id };
     } else {
@@ -227,9 +235,8 @@ function formatDate(date: Date): string {
 }
 
 function formatDateForTitle(date: string): string {
-  // Convert "2025-08-13" to "2025/8/13"
-  const [year, month, day] = date.split('-');
-  return `${year}/${parseInt(month)}/${parseInt(day)}`;
+  // Convert "2025-08-13" to "2025-08-13" (Keep as is, or ensure format)
+  return date;
 }
 
 function isLeapYear(year: number): boolean {
