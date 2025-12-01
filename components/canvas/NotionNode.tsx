@@ -24,11 +24,11 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(data.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
 
   const handleTitleBlur = () => {
     setIsEditingTitle(false);
     if (title !== data.label) {
+      console.log('[NotionNode] Title changed from', data.label, 'to', title);
       data.onUpdateTitle(title);
     }
   };
@@ -41,16 +41,12 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
   const borderColor = data.gradientColors ? data.gradientColors.start : data.color;
 
   return (
-    <div
-      className="relative w-full h-full"
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-    >
+    <div className="relative w-full h-full">
       {/* Node Resizer - allows resizing the block */}
       <NodeResizer
         isVisible={selected}
         minWidth={200}
-        minHeight={120}
+        minHeight={150}
         handleStyle={{
           width: '10px',
           height: '10px',
@@ -193,28 +189,22 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
           )}
         </div>
 
-        {/* Content area - show sub-items on hover */}
-        <div className="flex-1 px-4 py-3 overflow-hidden">
-          {isHovering && data.subItems && data.subItems.length > 0 && (
-            <div className="space-y-2 animate-fadeIn">
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Sub-items:</p>
-              {data.subItems.slice(0, 5).map((subItem, index) => (
+        {/* Content area - show sub-items as nested blocks */}
+        <div className="flex-1 px-4 py-3 overflow-auto">
+          {data.subItems && data.subItems.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-600 dark:text-gray-300 mb-2 font-medium">Sub-items:</p>
+              {data.subItems.map((subItem, index) => (
                 <div
                   key={subItem.id}
-                  className="px-3 py-2 rounded-lg bg-white/50 dark:bg-black/30 backdrop-blur-sm border border-white/30 text-xs"
+                  className="px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md"
                   style={{
                     borderLeft: `3px solid ${subItem.color || '#6b7280'}`,
-                    animation: `slideIn 0.2s ease-out ${index * 0.05}s both`,
                   }}
                 >
                   {subItem.title}
                 </div>
               ))}
-              {data.subItems.length > 5 && (
-                <div className="text-xs text-gray-500 italic">
-                  +{data.subItems.length - 5} more...
-                </div>
-              )}
             </div>
           )}
         </div>

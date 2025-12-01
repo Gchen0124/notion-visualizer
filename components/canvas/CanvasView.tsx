@@ -170,11 +170,17 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         ? { start: gradientStart, end: gradientEnd }
         : undefined;
 
+      // Calculate height based on number of sub-items (minimum 180, +40 per sub-item)
+      const baseHeight = 180;
+      const subItemHeight = 40;
+      const calculatedHeight = baseHeight + (subItems.length * subItemHeight);
+      const nodeHeight = Math.max(180, Math.min(calculatedHeight, 600)); // Cap at 600px
+
       const newNode: Node = {
         id: item.id,
         type: 'notionNode',
         position,
-        style: { width: 250, height: 180 }, // Default size
+        style: { width: 250, height: nodeHeight },
         data: {
           label: title,
           properties: item.properties,
