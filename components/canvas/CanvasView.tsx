@@ -130,8 +130,25 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       console.log('[CanvasView] Adding item to canvas:', item.id, 'Title:', title, 'TitleProp:', titleProp);
 
+      // Get sub-items for this item
+      const subItemIds = item.properties.Parent || []; // Parent is the relation field
+      const subItems = Array.isArray(subItemIds)
+        ? subItemIds.map((subId: string) => {
+            const subItem = items.find((i) => i.id === subId);
+            if (subItem) {
+              const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
+              return {
+                id: subItem.id,
+                title: subTitle,
+                color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
+              };
+            }
+            return null;
+          }).filter(Boolean)
+        : [];
+
       // Check if this item has children
-      const hasChildren = edges.some((e) => e.source === item.id);
+      const hasChildren = edges.some((e) => e.source === item.id) || subItems.length > 0;
       const childrenVisible = edges
         .filter((e) => e.source === item.id)
         .every((e) => !hiddenNodes.has(e.target));
@@ -143,17 +160,27 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         ? { x: savedX, y: savedY }
         : { x: Math.random() * 400, y: Math.random() * 400 };
 
+      // Get gradient colors or fallback to solid color
+      const gradientStart = item.properties.canvas_gradient_start;
+      const gradientEnd = item.properties.canvas_gradient_end;
+      const gradientColors = (gradientStart && gradientEnd)
+        ? { start: gradientStart, end: gradientEnd }
+        : undefined;
+
       const newNode: Node = {
         id: item.id,
         type: 'notionNode',
         position,
+        style: { width: 250, height: 180 }, // Default size
         data: {
           label: title,
           properties: item.properties,
           color: item.properties.canvas_color || '#9333ea',
+          gradientColors,
           visibleProperties: [], // Hide properties on node
           hasChildren,
           childrenVisible,
+          subItems,
           titleProp,
           onUpdateTitle: (newTitle: string) => {
             updateItemProperty(item.id, titleProp || 'Task Plan', newTitle);
@@ -171,6 +198,17 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
               )
             );
           },
+          onUpdateGradient: (start: string, end: string) => {
+            updateItemProperty(item.id, 'canvas_gradient_start', start);
+            updateItemProperty(item.id, 'canvas_gradient_end', end);
+            setNodes((nds) =>
+              nds.map((node) =>
+                node.id === item.id
+                  ? { ...node, data: { ...node.data, gradientColors: { start, end } } }
+                  : node
+              )
+            );
+          },
           onToggleSubItems: () => toggleSubItems(item.id),
           onOpenPropertyEditor: () => setEditingItemId(item.id),
         },
@@ -180,7 +218,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       setShowSearch(false);
       setSearchTerm('');
     },
-    [schema, selectedProperties, edges, hiddenNodes, setNodes, toggleSubItems]
+    [schema, selectedProperties, edges, hiddenNodes, items, setNodes, toggleSubItems]
   );
 
   // Update item property
@@ -493,6 +531,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             itemId={editingItemId}
             properties={editingItem.properties}
             schema={schema}
+            allItems={items}
             onUpdateProperty={(propName: string, value: any) => {
               updateItemProperty(editingItemId, propName, value);
             }}

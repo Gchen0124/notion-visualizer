@@ -9,6 +9,7 @@ interface PropertyEditorModalProps {
   properties: Record<string, any>;
   schema: any[];
   onUpdateProperty: (propName: string, value: any) => void;
+  allItems?: any[]; // For showing relation options
 }
 
 export default function PropertyEditorModal({
@@ -18,6 +19,7 @@ export default function PropertyEditorModal({
   properties,
   schema,
   onUpdateProperty,
+  allItems = [],
 }: PropertyEditorModalProps) {
   const [editedProperties, setEditedProperties] = useState<Record<string, any>>({});
 
@@ -139,6 +141,82 @@ export default function PropertyEditorModal({
           />
         );
 
+      case 'relation':
+        // Find title property for displaying item names
+        const titleProp = schema.find((s) => s.type === 'title')?.name || 'Task Plan';
+        const selectedIds = Array.isArray(value) ? value : [];
+
+        return (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 p-2 bg-white/30 dark:bg-black/20 rounded-lg min-h-[40px]">
+              {selectedIds.map((id: string) => {
+                const item = allItems.find((i) => i.id === id);
+                const itemTitle = item?.properties[titleProp] || 'Unknown';
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center px-2 py-1 bg-purple-100 dark:bg-purple-900/30 rounded text-xs"
+                  >
+                    {itemTitle}
+                    <button
+                      onClick={() => {
+                        handleChange(name, selectedIds.filter((i: string) => i !== id));
+                      }}
+                      className="ml-1 text-red-600 hover:text-red-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+            <select
+              onChange={(e) => {
+                if (e.target.value && !selectedIds.includes(e.target.value)) {
+                  handleChange(name, [...selectedIds, e.target.value]);
+                  e.target.value = '';
+                }
+              }}
+              className="w-full px-3 py-2 bg-white/50 dark:bg-black/30 rounded-lg outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">+ Add relation...</option>
+              {allItems
+                .filter((item) => item.id !== itemId && !selectedIds.includes(item.id))
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.properties[titleProp] || 'Untitled'}
+                  </option>
+                ))}
+            </select>
+          </div>
+        );
+
+      case 'people':
+        return (
+          <div className="text-sm text-gray-500">
+            People property (read-only in this version)
+          </div>
+        );
+
+      case 'files':
+        return (
+          <div className="text-sm text-gray-500">
+            Files property (read-only in this version)
+          </div>
+        );
+
+      case 'formula':
+      case 'rollup':
+      case 'created_time':
+      case 'last_edited_time':
+      case 'created_by':
+      case 'last_edited_by':
+        return (
+          <div className="text-sm text-gray-500">
+            {type} (computed/read-only)
+          </div>
+        );
+
       default:
         return (
           <div className="text-sm text-gray-500">
@@ -160,17 +238,15 @@ export default function PropertyEditorModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {schema
-            .filter((s) => !['relation', 'formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by'].includes(s.type))
-            .map((schemaProp) => (
-              <div key={schemaProp.name} className="space-y-2">
-                <label className="block text-sm font-medium">
-                  {schemaProp.name}
-                  <span className="text-xs text-gray-500 ml-2">({schemaProp.type})</span>
-                </label>
-                {renderPropertyInput(schemaProp)}
-              </div>
-            ))}
+          {schema.map((schemaProp) => (
+            <div key={schemaProp.name} className="space-y-2">
+              <label className="block text-sm font-medium">
+                {schemaProp.name}
+                <span className="text-xs text-gray-500 ml-2">({schemaProp.type})</span>
+              </label>
+              {renderPropertyInput(schemaProp)}
+            </div>
+          ))}
         </div>
 
         {/* Footer */}
