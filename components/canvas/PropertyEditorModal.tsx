@@ -228,16 +228,16 @@ export default function PropertyEditorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-2xl max-h-[80vh] bg-white/90 dark:bg-black/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden flex flex-col">
+      <div className="w-full max-w-2xl max-h-[80vh] bg-white/95 dark:bg-gray-100/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-b border-white/20">
+        <div className="px-6 py-4 bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-200 dark:to-pink-200 border-b border-gray-200">
           <h2 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
             Edit Properties
           </h2>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-white dark:bg-gray-50">
           {schema.map((schemaProp) => (
             <div key={schemaProp.name} className="space-y-2">
               <label className="block text-sm font-medium">
@@ -250,10 +250,10 @@ export default function PropertyEditorModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border-t border-white/20 flex justify-end space-x-3">
+        <div className="px-6 py-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-100 dark:to-pink-100 border-t border-gray-200 flex justify-end space-x-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-all"
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-300 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-400 transition-all"
           >
             Cancel
           </button>

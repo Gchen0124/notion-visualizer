@@ -68,21 +68,18 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
           selected ? 'ring-2 ring-offset-2 ring-offset-transparent shadow-2xl' : 'shadow-lg'
         }`}
         style={{
-          background: `${gradientStyle}15`,
+          background: gradientStyle,
           borderWidth: '2px',
           borderStyle: 'solid',
-          borderColor: borderColor,
+          borderColor: '#ffffff40',
           boxShadow: selected
-            ? `0 8px 32px ${borderColor}40`
-            : `0 4px 16px ${borderColor}20`,
+            ? `0 8px 32px ${borderColor}60`
+            : `0 4px 16px ${borderColor}40`,
         }}
       >
         {/* Header with title */}
         <div
-          className="px-4 py-3 rounded-t-xl cursor-move relative"
-          style={{
-            background: gradientStyle + '25',
-          }}
+          className="px-4 py-3 rounded-t-xl cursor-move relative bg-white/10 dark:bg-black/10"
         >
           {isEditingTitle ? (
             <input

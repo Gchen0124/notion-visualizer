@@ -36,8 +36,11 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
-  const [canvasBgColor, setCanvasBgColor] = useState(
-    localStorage.getItem('canvas_bg_color') || 'bg-gradient-to-br from-purple-50/50 via-pink-50/50 to-blue-50/50 dark:from-gray-900/50 dark:via-purple-900/50 dark:to-pink-900/50'
+  const [canvasBgGradientStart, setCanvasBgGradientStart] = useState(
+    localStorage.getItem('canvas_bg_gradient_start') || '#f3e8ff'
+  );
+  const [canvasBgGradientEnd, setCanvasBgGradientEnd] = useState(
+    localStorage.getItem('canvas_bg_gradient_end') || '#dbeafe'
   );
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
@@ -224,7 +227,9 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   // Update item property
   const updateItemProperty = async (itemId: string, propName: string, value: any) => {
     try {
-      await fetch('/api/canvas', {
+      console.log('[CanvasView] Updating property:', propName, 'for item:', itemId, 'value:', value);
+
+      const response = await fetch('/api/canvas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -233,8 +238,19 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           action: 'update',
           itemId,
           properties: { [propName]: value },
+          schema, // Pass schema for proper formatting
         }),
       });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        console.error('[CanvasView] Failed to update property:', result.error);
+        alert(`Failed to update property: ${result.error}`);
+        return;
+      }
+
+      console.log('[CanvasView] Property update successful');
 
       // Update local state
       setItems((items) =>
@@ -244,8 +260,18 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             : item
         )
       );
+
+      // Also update node data if it exists
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === itemId
+            ? { ...node, data: { ...node.data, properties: { ...node.data.properties, [propName]: value } } }
+            : node
+        )
+      );
     } catch (error) {
-      console.error('Failed to update property:', error);
+      console.error('[CanvasView] Failed to update property:', error);
+      alert(`Failed to update property: ${error}`);
     }
   };
 
@@ -266,6 +292,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           dataSourceId,
           action: 'create',
           properties: { [titleProp]: newTitle },
+          schema, // Pass schema for proper formatting
         }),
       });
 
@@ -315,6 +342,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
               properties: {
                 Parent: [connection.source], // Relation property
               },
+              schema,
             }),
           });
 
@@ -335,7 +363,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         }
       }
     },
-    [setEdges, apiKey, dataSourceId, setNodes]
+    [setEdges, apiKey, dataSourceId, setNodes, schema]
   );
 
   // Handle edge deletion (unnesting)
@@ -355,6 +383,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
               properties: {
                 Parent: [], // Clear relation
               },
+              schema,
             }),
           });
 
@@ -377,7 +406,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         }
       }
     },
-    [apiKey, dataSourceId, edges, setNodes]
+    [apiKey, dataSourceId, edges, setNodes, schema]
   );
 
   const filteredItems = items.filter((item) => {
@@ -461,31 +490,32 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       {/* Canvas Background Color Picker */}
       <div className="absolute top-4 right-4 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-64 border border-white/20">
-        <h3 className="font-semibold mb-2 text-sm">Canvas Background</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { name: 'Purple Gradient', value: 'bg-gradient-to-br from-purple-50/50 via-pink-50/50 to-blue-50/50 dark:from-gray-900/50 dark:via-purple-900/50 dark:to-pink-900/50' },
-            { name: 'Gray', value: 'bg-gray-100 dark:bg-gray-900' },
-            { name: 'White', value: 'bg-white dark:bg-black' },
-            { name: 'Blue Gradient', value: 'bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950 dark:to-cyan-950' },
-            { name: 'Green Gradient', value: 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950' },
-            { name: 'Orange Gradient', value: 'bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950 dark:to-amber-950' },
-          ].map((bg) => (
-            <button
-              key={bg.value}
-              onClick={() => {
-                setCanvasBgColor(bg.value);
-                localStorage.setItem('canvas_bg_color', bg.value);
+        <h3 className="font-semibold mb-3 text-sm">Canvas Background</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1.5">Gradient Start</label>
+            <input
+              type="color"
+              value={canvasBgGradientStart}
+              onChange={(e) => {
+                setCanvasBgGradientStart(e.target.value);
+                localStorage.setItem('canvas_bg_gradient_start', e.target.value);
               }}
-              className={`px-3 py-2 text-xs rounded-lg border-2 ${
-                canvasBgColor === bg.value
-                  ? 'border-purple-500 font-semibold'
-                  : 'border-gray-300 dark:border-gray-600'
-              } ${bg.value}`}
-            >
-              {bg.name}
-            </button>
-          ))}
+              className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5">Gradient End</label>
+            <input
+              type="color"
+              value={canvasBgGradientEnd}
+              onChange={(e) => {
+                setCanvasBgGradientEnd(e.target.value);
+                localStorage.setItem('canvas_bg_gradient_end', e.target.value);
+              }}
+              className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
+            />
+          </div>
         </div>
       </div>
 
@@ -503,6 +533,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             if (change.type === 'position' && change.position && !change.dragging) {
               const node = nodes.find((n) => n.id === change.id);
               if (node) {
+                console.log('[CanvasView] Saving position for', change.id, 'x:', Math.round(change.position.x), 'y:', Math.round(change.position.y));
                 updateItemProperty(change.id, 'canvas_x', Math.round(change.position.x));
                 updateItemProperty(change.id, 'canvas_y', Math.round(change.position.y));
               }
@@ -515,7 +546,9 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode="Delete"
-        className={canvasBgColor}
+        style={{
+          background: `linear-gradient(to bottom right, ${canvasBgGradientStart}, ${canvasBgGradientEnd})`,
+        }}
       >
         <Background />
         <Controls />

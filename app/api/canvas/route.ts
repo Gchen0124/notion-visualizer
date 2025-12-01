@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { apiKey, dataSourceId, action, itemId, properties } = body;
+    const { apiKey, dataSourceId, action, itemId, properties, schema } = body;
 
     if (!apiKey || !dataSourceId) {
       return NextResponse.json(
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
       console.log('[Canvas API] Creating page with properties:', properties);
 
       // Create new page
-      const formattedProps = formatPropertiesForNotion(properties);
+      const formattedProps = formatPropertiesForNotion(properties, schema);
       console.log('[Canvas API] Formatted properties:', JSON.stringify(formattedProps, null, 2));
 
       const newPage: any = await notion.pages.create({
@@ -110,20 +110,26 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ success: true, itemId: newPage.id });
     } else if (action === 'update') {
-      console.log('[Canvas API] Updating page', itemId, 'with properties:', properties);
+      console.log('[Canvas API] Updating page', itemId, 'with properties:', properties, 'schema:', schema);
 
       // Update existing page
-      await (notion as any).pages.update({
+      const formattedProps = formatPropertiesForNotion(properties, schema);
+      console.log('[Canvas API] Formatted update properties:', JSON.stringify(formattedProps, null, 2));
+
+      const result = await (notion as any).pages.update({
         page_id: itemId,
-        properties: formatPropertiesForNotion(properties),
+        properties: formattedProps,
       });
+
+      console.log('[Canvas API] Update successful for page', itemId);
 
       return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error: any) {
-    console.error('Error modifying item:', error);
+    console.error('[Canvas API] Error modifying item:', error);
+    console.error('[Canvas API] Error details:', error.body || error.message);
     return NextResponse.json(
       { error: error.message || 'Failed to modify item' },
       { status: 500 }
@@ -177,26 +183,59 @@ function formatPropertiesForNotion(properties: any, schema?: any[]): any {
     const schemaProp = schema?.find((s) => s.name === name);
     const propType = schemaProp?.type;
 
-    // Format based on schema type or auto-detect
-    if (propType === 'title' || (typeof value === 'string' && (name.toLowerCase().includes('title') || name.toLowerCase().includes('name') || name === 'Task Plan'))) {
+    // If property doesn't exist in schema, skip it (don't try to create new properties)
+    if (schema && schema.length > 0 && !schemaProp) {
+      console.log(`[formatPropertiesForNotion] Skipping property ${name} - not in schema`);
+      return;
+    }
+
+    // Format based on schema type (if available) or auto-detect
+    if (propType === 'title') {
       formatted[name] = {
-        title: [{ text: { content: value } }],
+        title: [{ text: { content: String(value) } }],
       };
-    } else if (typeof value === 'string') {
+    } else if (propType === 'rich_text') {
+      // Convert any value to string for rich_text
       formatted[name] = {
-        rich_text: [{ text: { content: value } }],
+        rich_text: [{ text: { content: String(value) } }],
       };
-    } else if (typeof value === 'number') {
-      formatted[name] = { number: value };
-    } else if (typeof value === 'boolean') {
-      formatted[name] = { checkbox: value };
-    } else if (Array.isArray(value)) {
-      // Could be relation or multi_select
-      if (propType === 'relation') {
+    } else if (propType === 'number') {
+      formatted[name] = { number: typeof value === 'number' ? value : parseFloat(value) };
+    } else if (propType === 'checkbox') {
+      formatted[name] = { checkbox: Boolean(value) };
+    } else if (propType === 'relation') {
+      formatted[name] = {
+        relation: Array.isArray(value) ? value.map((id) => ({ id })) : [],
+      };
+    } else if (propType === 'multi_select') {
+      formatted[name] = {
+        multi_select: Array.isArray(value) ? value.map((v) => ({ name: String(v) })) : [],
+      };
+    } else if (propType === 'select') {
+      formatted[name] = { select: { name: String(value) } };
+    } else if (propType === 'date') {
+      formatted[name] = { date: { start: String(value) } };
+    } else if (propType === 'url') {
+      formatted[name] = { url: String(value) };
+    } else if (propType === 'email') {
+      formatted[name] = { email: String(value) };
+    } else if (propType === 'phone_number') {
+      formatted[name] = { phone_number: String(value) };
+    } else {
+      // Auto-detect if no schema available (fallback for create operations)
+      if (typeof value === 'string' && (name.toLowerCase().includes('title') || name.toLowerCase().includes('name') || name === 'Task Plan')) {
         formatted[name] = {
-          relation: value.map((id) => ({ id })),
+          title: [{ text: { content: value } }],
         };
-      } else {
+      } else if (typeof value === 'string') {
+        formatted[name] = {
+          rich_text: [{ text: { content: value } }],
+        };
+      } else if (typeof value === 'number') {
+        formatted[name] = { number: value };
+      } else if (typeof value === 'boolean') {
+        formatted[name] = { checkbox: value };
+      } else if (Array.isArray(value)) {
         formatted[name] = {
           multi_select: value.map((v) => ({ name: v })),
         };
