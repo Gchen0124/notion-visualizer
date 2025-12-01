@@ -15,6 +15,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import NotionNode from './NotionNode';
+import PropertyEditorModal from './PropertyEditorModal';
 
 const nodeTypes = {
   notionNode: NotionNode,
@@ -35,6 +36,10 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
+  const [canvasBgColor, setCanvasBgColor] = useState(
+    localStorage.getItem('canvas_bg_color') || 'bg-gradient-to-br from-purple-50/50 via-pink-50/50 to-blue-50/50 dark:from-gray-900/50 dark:via-purple-900/50 dark:to-pink-900/50'
+  );
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   // Fetch database items
   useEffect(() => {
@@ -116,10 +121,14 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   // Add item to canvas
   const addItemToCanvas = useCallback(
     (item: any) => {
-      const titleProp = Object.keys(item.properties).find((key) =>
-        key.toLowerCase().includes('title') || key.toLowerCase().includes('name')
-      );
+      // Use schema to find the correct title property
+      const titleProp = schema.find((s) => s.type === 'title')?.name ||
+                        Object.keys(item.properties).find((key) =>
+                          key.toLowerCase().includes('title') || key.toLowerCase().includes('name') || key.toLowerCase().includes('plan')
+                        );
       const title = item.properties[titleProp || Object.keys(item.properties)[0]] || 'Untitled';
+
+      console.log('[CanvasView] Adding item to canvas:', item.id, 'Title:', title, 'TitleProp:', titleProp);
 
       // Check if this item has children
       const hasChildren = edges.some((e) => e.source === item.id);
@@ -127,19 +136,27 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         .filter((e) => e.source === item.id)
         .every((e) => !hiddenNodes.has(e.target));
 
+      // Use saved canvas position or random position
+      const savedX = item.properties.canvas_x;
+      const savedY = item.properties.canvas_y;
+      const position = (savedX !== null && savedX !== undefined && savedY !== null && savedY !== undefined)
+        ? { x: savedX, y: savedY }
+        : { x: Math.random() * 400, y: Math.random() * 400 };
+
       const newNode: Node = {
         id: item.id,
         type: 'notionNode',
-        position: { x: Math.random() * 400, y: Math.random() * 400 },
+        position,
         data: {
           label: title,
           properties: item.properties,
           color: item.properties.canvas_color || '#9333ea',
-          visibleProperties: selectedProperties,
+          visibleProperties: [], // Hide properties on node
           hasChildren,
           childrenVisible,
+          titleProp,
           onUpdateTitle: (newTitle: string) => {
-            updateItemProperty(item.id, titleProp || 'title', newTitle);
+            updateItemProperty(item.id, titleProp || 'Task Plan', newTitle);
           },
           onUpdateProperty: (propName: string, value: any) => {
             updateItemProperty(item.id, propName, value);
@@ -155,6 +172,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             );
           },
           onToggleSubItems: () => toggleSubItems(item.id),
+          onOpenPropertyEditor: () => setEditingItemId(item.id),
         },
       };
 
@@ -162,7 +180,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       setShowSearch(false);
       setSearchTerm('');
     },
-    [selectedProperties, edges, hiddenNodes, setNodes, toggleSubItems]
+    [schema, selectedProperties, edges, hiddenNodes, setNodes, toggleSubItems]
   );
 
   // Update item property
@@ -198,6 +216,9 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     const titleProp = schema.find((s) => s.type === 'title')?.name || 'Name';
     const newTitle = searchTerm || 'New Item';
 
+    console.log('[CanvasView] Creating item with titleProp:', titleProp, 'value:', newTitle);
+    console.log('[CanvasView] Schema:', schema);
+
     try {
       const response = await fetch('/api/canvas', {
         method: 'POST',
@@ -211,6 +232,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       });
 
       const result = await response.json();
+      console.log('[CanvasView] Create result:', result);
+
       if (result.success) {
         const newItem = {
           id: result.itemId,
@@ -218,9 +241,14 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         };
         setItems((items) => [...items, newItem]);
         addItemToCanvas(newItem);
+        setSearchTerm('');
+      } else if (result.error) {
+        console.error('Failed to create item:', result.error);
+        alert(`Failed to create item: ${result.error}`);
       }
     } catch (error) {
       console.error('Failed to create item:', error);
+      alert(`Failed to create item: ${error}`);
     }
   };
 
@@ -315,9 +343,11 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   );
 
   const filteredItems = items.filter((item) => {
-    const titleProp = Object.keys(item.properties).find((key) =>
-      key.toLowerCase().includes('title') || key.toLowerCase().includes('name')
-    );
+    // Use schema to find the actual title property
+    const titleProp = schema.find((s) => s.type === 'title')?.name ||
+                      Object.keys(item.properties).find((key) =>
+                        key.toLowerCase().includes('title') || key.toLowerCase().includes('name') || key.toLowerCase().includes('plan')
+                      );
     const title = item.properties[titleProp || Object.keys(item.properties)[0]] || '';
     return title.toLowerCase().includes(searchTerm.toLowerCase());
   });
@@ -352,18 +382,27 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             />
 
             <div className="max-h-60 overflow-y-auto space-y-1">
-              {filteredItems.length === 0 ? (
+              {/* Show create button if there's a search term */}
+              {searchTerm && (
                 <button
                   onClick={createNewItem}
-                  className="w-full px-3 py-2 text-left hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded transition-colors"
+                  className="w-full px-3 py-2 text-left hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded transition-colors font-semibold text-purple-600 dark:text-purple-400 border-b border-purple-200 dark:border-purple-800 mb-1"
                 >
-                  ✨ Create "{searchTerm || 'New Item'}"
+                  ✨ Create "{searchTerm}"
                 </button>
+              )}
+
+              {/* Show filtered items */}
+              {filteredItems.length === 0 && !searchTerm ? (
+                <div className="px-3 py-2 text-sm text-gray-500">
+                  Start typing to search or create...
+                </div>
               ) : (
                 filteredItems.map((item) => {
-                  const titleProp = Object.keys(item.properties).find((key) =>
-                    key.toLowerCase().includes('title') || key.toLowerCase().includes('name')
-                  );
+                  const titleProp = schema.find((s) => s.type === 'title')?.name ||
+                                    Object.keys(item.properties).find((key) =>
+                                      key.toLowerCase().includes('title') || key.toLowerCase().includes('name') || key.toLowerCase().includes('plan')
+                                    );
                   const title = item.properties[titleProp || Object.keys(item.properties)[0]];
 
                   return (
@@ -382,26 +421,32 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         )}
       </div>
 
-      {/* Property selector */}
+      {/* Canvas Background Color Picker */}
       <div className="absolute top-4 right-4 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-64 border border-white/20">
-        <h3 className="font-semibold mb-2 text-sm">Visible Properties</h3>
-        <div className="space-y-1 max-h-60 overflow-y-auto">
-          {schema.map((prop) => (
-            <label key={prop.name} className="flex items-center space-x-2 text-sm">
-              <input
-                type="checkbox"
-                checked={selectedProperties.includes(prop.name)}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setSelectedProperties([...selectedProperties, prop.name]);
-                  } else {
-                    setSelectedProperties(selectedProperties.filter((p) => p !== prop.name));
-                  }
-                }}
-                className="rounded"
-              />
-              <span>{prop.name}</span>
-            </label>
+        <h3 className="font-semibold mb-2 text-sm">Canvas Background</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { name: 'Purple Gradient', value: 'bg-gradient-to-br from-purple-50/50 via-pink-50/50 to-blue-50/50 dark:from-gray-900/50 dark:via-purple-900/50 dark:to-pink-900/50' },
+            { name: 'Gray', value: 'bg-gray-100 dark:bg-gray-900' },
+            { name: 'White', value: 'bg-white dark:bg-black' },
+            { name: 'Blue Gradient', value: 'bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950 dark:to-cyan-950' },
+            { name: 'Green Gradient', value: 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950' },
+            { name: 'Orange Gradient', value: 'bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950 dark:to-amber-950' },
+          ].map((bg) => (
+            <button
+              key={bg.value}
+              onClick={() => {
+                setCanvasBgColor(bg.value);
+                localStorage.setItem('canvas_bg_color', bg.value);
+              }}
+              className={`px-3 py-2 text-xs rounded-lg border-2 ${
+                canvasBgColor === bg.value
+                  ? 'border-purple-500 font-semibold'
+                  : 'border-gray-300 dark:border-gray-600'
+              } ${bg.value}`}
+            >
+              {bg.name}
+            </button>
           ))}
         </div>
       </div>
@@ -412,19 +457,48 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         edges={edges.filter(
           (edge) => !hiddenNodes.has(edge.source) && !hiddenNodes.has(edge.target)
         )}
-        onNodesChange={onNodesChange}
+        onNodesChange={(changes) => {
+          onNodesChange(changes);
+
+          // Save position changes to Notion
+          changes.forEach((change) => {
+            if (change.type === 'position' && change.position && !change.dragging) {
+              const node = nodes.find((n) => n.id === change.id);
+              if (node) {
+                updateItemProperty(change.id, 'canvas_x', Math.round(change.position.x));
+                updateItemProperty(change.id, 'canvas_y', Math.round(change.position.y));
+              }
+            }
+          });
+        }}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgesDelete={onEdgesDelete}
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode="Delete"
-        className="bg-gradient-to-br from-purple-50/50 via-pink-50/50 to-blue-50/50 dark:from-gray-900/50 dark:via-purple-900/50 dark:to-pink-900/50"
+        className={canvasBgColor}
       >
         <Background />
         <Controls />
-        <MiniMap />
       </ReactFlow>
+
+      {/* Property Editor Modal */}
+      {editingItemId && (() => {
+        const editingItem = items.find((item) => item.id === editingItemId);
+        return editingItem ? (
+          <PropertyEditorModal
+            isOpen={true}
+            onClose={() => setEditingItemId(null)}
+            itemId={editingItemId}
+            properties={editingItem.properties}
+            schema={schema}
+            onUpdateProperty={(propName: string, value: any) => {
+              updateItemProperty(editingItemId, propName, value);
+            }}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

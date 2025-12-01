@@ -94,17 +94,24 @@ export async function POST(request: NextRequest) {
     });
 
     if (action === 'create') {
+      console.log('[Canvas API] Creating page with properties:', properties);
+
       // Create new page
+      const formattedProps = formatPropertiesForNotion(properties);
+      console.log('[Canvas API] Formatted properties:', JSON.stringify(formattedProps, null, 2));
+
       const newPage: any = await notion.pages.create({
         parent: {
           type: 'data_source_id',
           data_source_id: dataSourceId,
         },
-        properties: formatPropertiesForNotion(properties),
+        properties: formattedProps,
       });
 
       return NextResponse.json({ success: true, itemId: newPage.id });
     } else if (action === 'update') {
+      console.log('[Canvas API] Updating page', itemId, 'with properties:', properties);
+
       // Update existing page
       await (notion as any).pages.update({
         page_id: itemId,
@@ -160,31 +167,40 @@ function extractPropertyValue(property: any): any {
   }
 }
 
-function formatPropertiesForNotion(properties: any): any {
+function formatPropertiesForNotion(properties: any, schema?: any[]): any {
   const formatted: any = {};
 
   Object.entries(properties).forEach(([name, value]: [string, any]) => {
     if (value === null || value === undefined) return;
 
-    // Auto-detect type based on value
-    if (typeof value === 'string') {
-      if (name.toLowerCase().includes('title') || name.toLowerCase().includes('name')) {
-        formatted[name] = {
-          title: [{ text: { content: value } }],
-        };
-      } else {
-        formatted[name] = {
-          rich_text: [{ text: { content: value } }],
-        };
-      }
+    // Find property type from schema if available
+    const schemaProp = schema?.find((s) => s.name === name);
+    const propType = schemaProp?.type;
+
+    // Format based on schema type or auto-detect
+    if (propType === 'title' || (typeof value === 'string' && (name.toLowerCase().includes('title') || name.toLowerCase().includes('name') || name === 'Task Plan'))) {
+      formatted[name] = {
+        title: [{ text: { content: value } }],
+      };
+    } else if (typeof value === 'string') {
+      formatted[name] = {
+        rich_text: [{ text: { content: value } }],
+      };
     } else if (typeof value === 'number') {
       formatted[name] = { number: value };
     } else if (typeof value === 'boolean') {
       formatted[name] = { checkbox: value };
     } else if (Array.isArray(value)) {
-      formatted[name] = {
-        multi_select: value.map((v) => ({ name: v })),
-      };
+      // Could be relation or multi_select
+      if (propType === 'relation') {
+        formatted[name] = {
+          relation: value.map((id) => ({ id })),
+        };
+      } else {
+        formatted[name] = {
+          multi_select: value.map((v) => ({ name: v })),
+        };
+      }
     }
   });
 

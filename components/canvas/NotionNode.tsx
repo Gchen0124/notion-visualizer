@@ -12,6 +12,7 @@ interface NotionNodeData {
   onUpdateProperty: (propName: string, value: any) => void;
   onUpdateColor: (color: string) => void;
   onToggleSubItems?: () => void;
+  onOpenPropertyEditor?: () => void;
   hasChildren?: boolean;
   childrenVisible?: boolean;
 }
@@ -88,14 +89,26 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
             onDoubleClick={() => setIsEditingTitle(true)}
           >
             <h3 className="font-semibold text-sm truncate flex-1">{data.label}</h3>
-            {data.hasChildren && (
-              <button
-                onClick={data.onToggleSubItems}
-                className="ml-2 p-1 hover:bg-white/30 rounded transition-colors"
-              >
-                {data.childrenVisible ? '👁️' : '👁️‍🗨️'}
-              </button>
-            )}
+            <div className="flex items-center space-x-1">
+              {data.onOpenPropertyEditor && (
+                <button
+                  onClick={data.onOpenPropertyEditor}
+                  className="p-1 hover:bg-white/30 rounded transition-colors"
+                  title="Edit properties"
+                >
+                  ✏️
+                </button>
+              )}
+              {data.hasChildren && (
+                <button
+                  onClick={data.onToggleSubItems}
+                  className="p-1 hover:bg-white/30 rounded transition-colors"
+                  title={data.childrenVisible ? 'Hide sub-items' : 'Show sub-items'}
+                >
+                  {data.childrenVisible ? '👁️' : '👁️‍🗨️'}
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -125,27 +138,10 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
         )}
       </div>
 
-      {/* Properties */}
-      {data.visibleProperties.length > 0 && (
-        <div className="px-4 py-3 space-y-2">
-          {data.visibleProperties.map((propName) => {
-            const value = data.properties[propName];
-            return (
-              <div key={propName} className="text-xs">
-                <div className="font-medium text-gray-600 dark:text-gray-300 mb-1">
-                  {propName}
-                </div>
-                <input
-                  type="text"
-                  value={value || ''}
-                  onChange={(e) => data.onUpdateProperty(propName, e.target.value)}
-                  className="w-full bg-white/50 dark:bg-black/20 rounded px-2 py-1 text-xs outline-none focus:ring-1"
-                  style={{ ringColor: currentColor.value }}
-                  placeholder={`Enter ${propName}...`}
-                />
-              </div>
-            );
-          })}
+      {/* Minimal footer - only show sub-item count if has children */}
+      {data.hasChildren && (
+        <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+          {data.childrenVisible ? 'Sub-items visible' : 'Sub-items hidden'}
         </div>
       )}
     </div>
