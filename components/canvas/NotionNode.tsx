@@ -103,6 +103,16 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
             >
               <h3 className="font-semibold text-sm flex-1 cursor-text">{data.label}</h3>
               <div className="flex items-center space-x-1">
+                {/* Color picker button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowColorPicker(!showColorPicker);
+                  }}
+                  className="p-1 w-6 h-6 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
+                  style={{ background: gradientStyle }}
+                  title="Change colors"
+                />
                 {data.onOpenPropertyEditor && (
                   <button
                     onClick={(e) => {
@@ -131,62 +141,71 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
             </div>
           )}
 
-          {/* Color/Gradient picker button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowColorPicker(!showColorPicker);
-            }}
-            className="absolute top-2 right-2 w-6 h-6 rounded-full border-2 border-white shadow-lg hover:scale-110 transition-transform"
-            style={{ background: gradientStyle }}
-          />
-
-          {/* Advanced Color picker dropdown */}
+          {/* Color picker dropdown */}
           {showColorPicker && (
-            <div className="absolute top-10 right-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
-              <h4 className="text-xs font-semibold mb-3">Background Style</h4>
+            <div className="absolute top-12 right-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
+              <h4 className="text-xs font-semibold mb-3">Background Colors</h4>
 
-              {/* Gradient presets */}
-              <div className="space-y-2 mb-3">
-                <p className="text-xs text-gray-600 dark:text-gray-400">Gradients</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { name: 'Purple Dream', start: '#9333ea', end: '#c084fc' },
-                    { name: 'Ocean Blue', start: '#0ea5e9', end: '#6366f1' },
-                    { name: 'Sunset', start: '#f97316', end: '#ec4899' },
-                    { name: 'Forest', start: '#059669', end: '#10b981' },
-                    { name: 'Rose Gold', start: '#be123c', end: '#fda4af' },
-                    { name: 'Midnight', start: '#1e293b', end: '#475569' },
-                  ].map((gradient) => (
-                    <button
-                      key={gradient.name}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        data.onUpdateGradient && data.onUpdateGradient(gradient.start, gradient.end);
-                        setShowColorPicker(false);
-                      }}
-                      className="h-10 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:scale-105 transition-transform"
-                      style={{ background: `linear-gradient(135deg, ${gradient.start}, ${gradient.end})` }}
-                      title={gradient.name}
-                    />
-                  ))}
+              {/* Custom color pickers */}
+              <div className="space-y-3 mb-3">
+                <div>
+                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                    Gradient Start
+                  </label>
+                  <input
+                    type="color"
+                    value={data.gradientColors?.start || data.color}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      const newStart = e.target.value;
+                      const currentEnd = data.gradientColors?.end || data.color;
+                      data.onUpdateGradient && data.onUpdateGradient(newStart, currentEnd);
+                    }}
+                    className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                    Gradient End
+                  </label>
+                  <input
+                    type="color"
+                    value={data.gradientColors?.end || data.color}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      const newEnd = e.target.value;
+                      const currentStart = data.gradientColors?.start || data.color;
+                      data.onUpdateGradient && data.onUpdateGradient(currentStart, newEnd);
+                    }}
+                    className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
+                  />
                 </div>
               </div>
 
-              {/* White background option */}
+              {/* Quick preset gradients */}
               <div className="space-y-2">
-                <p className="text-xs text-gray-600 dark:text-gray-400">Solid</p>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    data.onUpdateGradient && data.onUpdateGradient('#ffffff', '#ffffff');
-                    setShowColorPicker(false);
-                  }}
-                  className="w-full h-10 rounded-lg border-2 border-gray-300 hover:scale-105 transition-transform bg-white"
-                  title="White"
-                >
-                  <span className="text-xs text-gray-800">White</span>
-                </button>
+                <p className="text-xs text-gray-600 dark:text-gray-400">Quick Presets</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { name: 'Purple', start: '#9333ea', end: '#c084fc' },
+                    { name: 'Blue', start: '#0ea5e9', end: '#6366f1' },
+                    { name: 'Sunset', start: '#f97316', end: '#ec4899' },
+                    { name: 'Forest', start: '#059669', end: '#10b981' },
+                    { name: 'Rose', start: '#be123c', end: '#fda4af' },
+                    { name: 'White', start: '#ffffff', end: '#ffffff' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.name}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        data.onUpdateGradient && data.onUpdateGradient(preset.start, preset.end);
+                      }}
+                      className="h-8 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:scale-105 transition-transform text-xs"
+                      style={{ background: `linear-gradient(135deg, ${preset.start}, ${preset.end})` }}
+                      title={preset.name}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}
