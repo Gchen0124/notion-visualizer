@@ -133,22 +133,22 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       console.log('[CanvasView] Adding item to canvas:', item.id, 'Title:', title, 'TitleProp:', titleProp);
 
-      // Get sub-items for this item
-      const subItemIds = item.properties.Parent || []; // Parent is the relation field
-      const subItems = Array.isArray(subItemIds)
-        ? subItemIds.map((subId: string) => {
-            const subItem = items.find((i) => i.id === subId);
-            if (subItem) {
-              const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
-              return {
-                id: subItem.id,
-                title: subTitle,
-                color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
-              };
-            }
-            return null;
-          }).filter(Boolean)
-        : [];
+      // Get sub-items for this item (items that have THIS item as their Parent)
+      const subItems = items
+        .filter((i) => {
+          const parentIds = i.properties.Parent || [];
+          return Array.isArray(parentIds) && parentIds.includes(item.id);
+        })
+        .map((subItem) => {
+          const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
+          return {
+            id: subItem.id,
+            title: subTitle,
+            color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
+          };
+        });
+
+      console.log('[CanvasView] Found', subItems.length, 'sub-items for', item.id);
 
       // Check if this item has children
       const hasChildren = edges.some((e) => e.source === item.id) || subItems.length > 0;
@@ -269,11 +269,21 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       // Also update node data if it exists
       setNodes((nds) =>
-        nds.map((node) =>
-          node.id === itemId
-            ? { ...node, data: { ...node.data, properties: { ...node.data.properties, [propName]: value } } }
-            : node
-        )
+        nds.map((node) => {
+          if (node.id === itemId) {
+            const updatedData = {
+              ...node.data,
+              properties: { ...node.data.properties, [propName]: value }
+            };
+            // If updating the title property, also update the label
+            const titleProp = schema.find((s) => s.type === 'title')?.name;
+            if (propName === titleProp) {
+              updatedData.label = value;
+            }
+            return { ...node, data: updatedData };
+          }
+          return node;
+        })
       );
     } catch (error) {
       console.error('[CanvasView] Failed to update property:', error);
@@ -309,10 +319,12 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         const newItem = {
           id: result.itemId,
           properties: { [titleProp]: newTitle },
+          url: '', // Add url property even if empty
         };
         setItems((items) => [...items, newItem]);
         addItemToCanvas(newItem);
         setSearchTerm('');
+        setShowSearch(false); // Close search dropdown after creating
       } else if (result.error) {
         console.error('Failed to create item:', result.error);
         alert(`Failed to create item: ${result.error}`);
