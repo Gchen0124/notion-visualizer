@@ -195,8 +195,12 @@ function formatPropertiesForNotion(properties: any, schema?: any[]): any {
     const schemaProp = schema?.find((s) => s.name === name);
     const propType = schemaProp?.type;
 
+    // Allow Parent item property even if not in schema (it's a relation property for sub-items)
+    const isParentProperty = name === 'Parent item' || name === 'Parent';
+
     // If property doesn't exist in schema, skip it (don't try to create new properties)
-    if (schema && schema.length > 0 && !schemaProp) {
+    // Exception: Always allow Parent item property for sub-item relationships
+    if (schema && schema.length > 0 && !schemaProp && !isParentProperty) {
       console.log(`[formatPropertiesForNotion] Skipping property ${name} - not in schema`);
       return;
     }

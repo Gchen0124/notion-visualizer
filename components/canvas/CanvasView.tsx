@@ -141,7 +141,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           // Get updated sub-items for this node
           const subItems = items
             .filter((i) => {
-              const parentIds = i.properties.Parent || [];
+              const parentIds = i.properties['Parent item'] || [];
               return Array.isArray(parentIds) && parentIds.includes(nodeId);
             })
             .map((subItem) => {
@@ -185,7 +185,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       // Get sub-items for this item (items that have THIS item as their Parent)
       const subItems = items
         .filter((i) => {
-          const parentIds = i.properties.Parent || [];
+          const parentIds = i.properties['Parent item'] || [];
           return Array.isArray(parentIds) && parentIds.includes(item.id);
         })
         .map((subItem) => {
@@ -409,7 +409,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           action: 'create',
           properties: {
             [titleProp]: subItemTitle,
-            Parent: [parentId], // Set parent relationship
+            'Parent item': [parentId], // Set parent relationship
           },
           schema,
         }),
@@ -423,7 +423,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           id: result.itemId,
           properties: {
             [titleProp]: subItemTitle,
-            Parent: [parentId],
+            'Parent item': [parentId],
           },
           url: '',
         };
@@ -482,7 +482,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     const titleProp = schema.find((s) => s.type === 'title')?.name;
     const currentSubItems = items
       .filter((i) => {
-        const parentIds = i.properties.Parent || [];
+        const parentIds = i.properties['Parent item'] || [];
         return Array.isArray(parentIds) && parentIds.includes(parentId);
       })
       .sort((a, b) => {
@@ -551,7 +551,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
               action: 'update',
               itemId: connection.target,
               properties: {
-                Parent: [connection.source], // Relation property
+                'Parent item': [connection.source], // Relation property
               },
               schema,
             }),
@@ -592,7 +592,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
               action: 'update',
               itemId: edge.target,
               properties: {
-                Parent: [], // Clear relation
+                'Parent item': [], // Clear relation
               },
               schema,
             }),
