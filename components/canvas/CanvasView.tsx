@@ -417,19 +417,35 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           await updateItemProperty(parentId, 'Sub-item', updatedSubItems);
 
           // Update local state with both the new sub-item and updated parent
-          setItems((items) =>
-            items.map((item) =>
-              item.id === parentId
-                ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
-                : item
-            ).concat([newSubItem])
+          const updatedItems = items.map((item) =>
+            item.id === parentId
+              ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
+              : item
+          ).concat([newSubItem]);
+
+          setItems(updatedItems);
+
+          // Immediately update the node with new data
+          setNodes((nds) =>
+            nds.map((node) => {
+              if (node.id === parentId) {
+                const newHeight = calculateNodeHeight(updatedSubItems.length);
+                return {
+                  ...node,
+                  style: { ...node.style, height: newHeight },
+                  data: {
+                    ...node.data,
+                    properties: { ...parentItem.properties, 'Sub-item': updatedSubItems },
+                    allItems: updatedItems,
+                  },
+                };
+              }
+              return node;
+            })
           );
         } else {
           setItems((items) => [...items, newSubItem]);
         }
-
-        // Refresh the parent node to show the new sub-item
-        refreshNodeSubItems(parentId);
       } else {
         console.error('Failed to create sub-item:', result.error);
         alert(`Failed to create sub-item: ${result.error}`);
@@ -471,21 +487,37 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           await updateItemProperty(parentId, 'Sub-item', updatedSubItems);
 
           // Update local state
-          setItems((items) =>
-            items
-              .filter((item) => item.id !== subItemId)
-              .map((item) =>
-                item.id === parentId
-                  ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
-                  : item
-              )
+          const updatedItems = items
+            .filter((item) => item.id !== subItemId)
+            .map((item) =>
+              item.id === parentId
+                ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
+                : item
+            );
+
+          setItems(updatedItems);
+
+          // Immediately update the node with new data
+          setNodes((nds) =>
+            nds.map((node) => {
+              if (node.id === parentId) {
+                const newHeight = calculateNodeHeight(updatedSubItems.length);
+                return {
+                  ...node,
+                  style: { ...node.style, height: newHeight },
+                  data: {
+                    ...node.data,
+                    properties: { ...parentItem.properties, 'Sub-item': updatedSubItems },
+                    allItems: updatedItems,
+                  },
+                };
+              }
+              return node;
+            })
           );
         } else {
           setItems((items) => items.filter((item) => item.id !== subItemId));
         }
-
-        // Refresh the parent node
-        refreshNodeSubItems(parentId);
       } else {
         console.error('Failed to delete sub-item:', result.error);
         alert(`Failed to delete sub-item: ${result.error}`);
