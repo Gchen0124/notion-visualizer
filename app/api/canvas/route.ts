@@ -124,6 +124,18 @@ export async function POST(request: NextRequest) {
       console.log('[Canvas API] Update successful for page', itemId);
 
       return NextResponse.json({ success: true });
+    } else if (action === 'delete') {
+      console.log('[Canvas API] Deleting page', itemId);
+
+      // Delete/archive the page
+      await (notion as any).pages.update({
+        page_id: itemId,
+        archived: true,
+      });
+
+      console.log('[Canvas API] Delete successful for page', itemId);
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

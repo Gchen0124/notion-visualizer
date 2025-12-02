@@ -121,6 +121,55 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     [edges, hiddenNodes, setNodes]
   );
 
+  // Calculate node height based on sub-items
+  const calculateNodeHeight = useCallback((subItemCount: number) => {
+    const baseHeight = 180;
+    const headerHeight = 60;
+    const subItemHeight = 45;
+    const padding = 20;
+    const calculatedHeight = headerHeight + padding + (subItemCount * subItemHeight) + (subItemCount > 0 ? 40 : 40);
+    return Math.max(180, calculatedHeight); // No max cap, let it grow
+  }, []);
+
+  // Refresh node's sub-items
+  const refreshNodeSubItems = useCallback((nodeId: string) => {
+    const titleProp = schema.find((s) => s.type === 'title')?.name;
+
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          // Get updated sub-items for this node
+          const subItems = items
+            .filter((i) => {
+              const parentIds = i.properties.Parent || [];
+              return Array.isArray(parentIds) && parentIds.includes(nodeId);
+            })
+            .map((subItem) => {
+              const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
+              return {
+                id: subItem.id,
+                title: subTitle,
+                color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
+              };
+            });
+
+          // Calculate new height
+          const newHeight = calculateNodeHeight(subItems.length);
+
+          return {
+            ...node,
+            style: { ...node.style, height: newHeight },
+            data: {
+              ...node.data,
+              subItems,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [items, schema, setNodes, calculateNodeHeight]);
+
   // Add item to canvas
   const addItemToCanvas = useCallback(
     (item: any) => {
@@ -170,11 +219,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         ? { start: gradientStart, end: gradientEnd }
         : undefined;
 
-      // Calculate height based on number of sub-items (minimum 180, +40 per sub-item)
-      const baseHeight = 180;
-      const subItemHeight = 40;
-      const calculatedHeight = baseHeight + (subItems.length * subItemHeight);
-      const nodeHeight = Math.max(180, Math.min(calculatedHeight, 600)); // Cap at 600px
+      // Calculate height based on number of sub-items
+      const nodeHeight = calculateNodeHeight(subItems.length);
 
       const newNode: Node = {
         id: item.id,
@@ -220,6 +266,18 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           },
           onToggleSubItems: () => toggleSubItems(item.id),
           onOpenPropertyEditor: () => setEditingItemId(item.id),
+          onAddSubItem: async () => {
+            const subItemTitle = prompt('Enter sub-item title:');
+            if (subItemTitle) {
+              await createSubItem(item.id, subItemTitle);
+            }
+          },
+          onDeleteSubItem: async (subItemId: string) => {
+            await deleteSubItem(subItemId, item.id);
+          },
+          onReorderSubItems: async (subItemId: string, direction: 'up' | 'down') => {
+            await reorderSubItem(item.id, subItemId, direction);
+          },
         },
       };
 
@@ -227,7 +285,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       setShowSearch(false);
       setSearchTerm('');
     },
-    [schema, selectedProperties, edges, hiddenNodes, items, setNodes, toggleSubItems]
+    [schema, selectedProperties, edges, hiddenNodes, items, setNodes, toggleSubItems, calculateNodeHeight]
   );
 
   // Update item property
@@ -332,6 +390,141 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     } catch (error) {
       console.error('Failed to create item:', error);
       alert(`Failed to create item: ${error}`);
+    }
+  };
+
+  // Create sub-item
+  const createSubItem = async (parentId: string, subItemTitle: string) => {
+    const titleProp = schema.find((s) => s.type === 'title')?.name || 'Name';
+
+    console.log('[CanvasView] Creating sub-item with title:', subItemTitle, 'for parent:', parentId);
+
+    try {
+      const response = await fetch('/api/canvas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          dataSourceId,
+          action: 'create',
+          properties: {
+            [titleProp]: subItemTitle,
+            Parent: [parentId], // Set parent relationship
+          },
+          schema,
+        }),
+      });
+
+      const result = await response.json();
+      console.log('[CanvasView] Create sub-item result:', result);
+
+      if (result.success) {
+        const newSubItem = {
+          id: result.itemId,
+          properties: {
+            [titleProp]: subItemTitle,
+            Parent: [parentId],
+          },
+          url: '',
+        };
+        setItems((items) => [...items, newSubItem]);
+
+        // Refresh the parent node to show the new sub-item
+        refreshNodeSubItems(parentId);
+      } else {
+        console.error('Failed to create sub-item:', result.error);
+        alert(`Failed to create sub-item: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to create sub-item:', error);
+      alert(`Failed to create sub-item: ${error}`);
+    }
+  };
+
+  // Delete sub-item
+  const deleteSubItem = async (subItemId: string, parentId: string) => {
+    console.log('[CanvasView] Deleting sub-item:', subItemId);
+
+    try {
+      const response = await fetch('/api/canvas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          dataSourceId,
+          action: 'delete',
+          itemId: subItemId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setItems((items) => items.filter((item) => item.id !== subItemId));
+
+        // Refresh the parent node
+        refreshNodeSubItems(parentId);
+      } else {
+        console.error('Failed to delete sub-item:', result.error);
+        alert(`Failed to delete sub-item: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to delete sub-item:', error);
+      alert(`Failed to delete sub-item: ${error}`);
+    }
+  };
+
+  // Reorder sub-items
+  const reorderSubItem = async (parentId: string, subItemId: string, direction: 'up' | 'down') => {
+    console.log('[CanvasView] Reordering sub-item:', subItemId, 'direction:', direction);
+
+    // Get current sub-items
+    const titleProp = schema.find((s) => s.type === 'title')?.name;
+    const currentSubItems = items
+      .filter((i) => {
+        const parentIds = i.properties.Parent || [];
+        return Array.isArray(parentIds) && parentIds.includes(parentId);
+      })
+      .sort((a, b) => {
+        // Sort by some order property if exists, otherwise by id
+        const orderA = a.properties.order || 0;
+        const orderB = b.properties.order || 0;
+        return orderA - orderB;
+      });
+
+    const currentIndex = currentSubItems.findIndex((item) => item.id === subItemId);
+    if (currentIndex === -1) return;
+
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= currentSubItems.length) return;
+
+    // Swap items
+    const reorderedItems = [...currentSubItems];
+    [reorderedItems[currentIndex], reorderedItems[newIndex]] =
+      [reorderedItems[newIndex], reorderedItems[currentIndex]];
+
+    // Update order property for all sub-items
+    try {
+      for (let i = 0; i < reorderedItems.length; i++) {
+        await updateItemProperty(reorderedItems[i].id, 'order', i);
+      }
+
+      // Update local state
+      setItems((items) =>
+        items.map((item) => {
+          const idx = reorderedItems.findIndex((ri) => ri.id === item.id);
+          if (idx !== -1) {
+            return { ...item, properties: { ...item.properties, order: idx } };
+          }
+          return item;
+        })
+      );
+
+      // Refresh the parent node
+      setTimeout(() => refreshNodeSubItems(parentId), 100);
+    } catch (error) {
+      console.error('Failed to reorder sub-items:', error);
+      alert(`Failed to reorder sub-items: ${error}`);
     }
   };
 

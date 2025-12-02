@@ -15,6 +15,9 @@ interface NotionNodeData {
   onUpdateGradient?: (start: string, end: string) => void;
   onToggleSubItems?: () => void;
   onOpenPropertyEditor?: () => void;
+  onAddSubItem?: () => void;
+  onDeleteSubItem?: (subItemId: string) => void;
+  onReorderSubItems?: (subItemId: string, direction: 'up' | 'down') => void;
   hasChildren?: boolean;
   childrenVisible?: boolean;
   subItems?: Array<{ id: string; title: string; color?: string }>;
@@ -191,22 +194,88 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
 
         {/* Content area - show sub-items as nested blocks */}
         <div className="flex-1 px-4 py-3 overflow-auto">
-          {data.subItems && data.subItems.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-600 dark:text-gray-300 mb-2 font-medium">Sub-items:</p>
-              {data.subItems.map((subItem, index) => (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
+                Sub-items {data.subItems && data.subItems.length > 0 && `(${data.subItems.length})`}
+              </p>
+              {data.onAddSubItem && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onAddSubItem && data.onAddSubItem();
+                  }}
+                  className="px-2 py-1 text-xs bg-white/60 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-black/50 rounded-md transition-colors border border-white/40"
+                  title="Add sub-item"
+                >
+                  ➕ Add
+                </button>
+              )}
+            </div>
+
+            {data.subItems && data.subItems.length > 0 ? (
+              data.subItems.map((subItem, index) => (
                 <div
                   key={subItem.id}
-                  className="px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md"
+                  className="group px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md"
                   style={{
                     borderLeft: `3px solid ${subItem.color || '#6b7280'}`,
                   }}
                 >
-                  {subItem.title}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex-1">{subItem.title}</span>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Move up button */}
+                      {index > 0 && data.onReorderSubItems && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            data.onReorderSubItems && data.onReorderSubItems(subItem.id, 'up');
+                          }}
+                          className="p-1 hover:bg-white/50 dark:hover:bg-black/30 rounded transition-colors"
+                          title="Move up"
+                        >
+                          ⬆️
+                        </button>
+                      )}
+                      {/* Move down button */}
+                      {index < data.subItems.length - 1 && data.onReorderSubItems && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            data.onReorderSubItems && data.onReorderSubItems(subItem.id, 'down');
+                          }}
+                          className="p-1 hover:bg-white/50 dark:hover:bg-black/30 rounded transition-colors"
+                          title="Move down"
+                        >
+                          ⬇️
+                        </button>
+                      )}
+                      {/* Delete button */}
+                      {data.onDeleteSubItem && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete sub-item "${subItem.title}"?`)) {
+                              data.onDeleteSubItem && data.onDeleteSubItem(subItem.id);
+                            }
+                          }}
+                          className="p-1 hover:bg-red-500/50 rounded transition-colors"
+                          title="Delete sub-item"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
+                No sub-items yet. Click "Add" to create one.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
