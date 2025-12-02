@@ -133,42 +133,35 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
   // Refresh node's sub-items
   const refreshNodeSubItems = useCallback((nodeId: string) => {
-    const titleProp = schema.find((s) => s.type === 'title')?.name;
-
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === nodeId) {
-          // Get updated sub-items for this node
-          const subItems = items
-            .filter((i) => {
-              const parentIds = i.properties['Parent item'] || [];
-              return Array.isArray(parentIds) && parentIds.includes(nodeId);
-            })
-            .map((subItem) => {
-              const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
-              return {
-                id: subItem.id,
-                title: subTitle,
-                color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
-              };
-            });
+          // Find the updated item in items state
+          const updatedItem = items.find((i) => i.id === nodeId);
+          if (!updatedItem) return node;
+
+          // Get sub-item count from Sub-item property
+          const subItemIds = Array.isArray(updatedItem.properties['Sub-item'])
+            ? updatedItem.properties['Sub-item']
+            : [];
 
           // Calculate new height
-          const newHeight = calculateNodeHeight(subItems.length);
+          const newHeight = calculateNodeHeight(subItemIds.length);
 
           return {
             ...node,
             style: { ...node.style, height: newHeight },
             data: {
               ...node.data,
-              subItems,
+              properties: updatedItem.properties, // Update properties to reflect new Sub-item array
+              allItems: items, // Update allItems with latest state
             },
           };
         }
         return node;
       })
     );
-  }, [items, schema, setNodes, calculateNodeHeight]);
+  }, [items, setNodes, calculateNodeHeight]);
 
   // Add item to canvas
   const addItemToCanvas = useCallback(
@@ -182,25 +175,9 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       console.log('[CanvasView] Adding item to canvas:', item.id, 'Title:', title, 'TitleProp:', titleProp);
 
-      // Get sub-items for this item (items that have THIS item as their Parent)
-      const subItems = items
-        .filter((i) => {
-          const parentIds = i.properties['Parent item'] || [];
-          return Array.isArray(parentIds) && parentIds.includes(item.id);
-        })
-        .map((subItem) => {
-          const subTitle = subItem.properties[titleProp || Object.keys(subItem.properties)[0]] || 'Untitled';
-          return {
-            id: subItem.id,
-            title: subTitle,
-            color: subItem.properties.canvas_gradient_start || subItem.properties.canvas_color || '#6b7280',
-          };
-        });
-
-      console.log('[CanvasView] Found', subItems.length, 'sub-items for', item.id);
-
-      // Check if this item has children
-      const hasChildren = edges.some((e) => e.source === item.id) || subItems.length > 0;
+      // Check if this item has children (from Sub-item property or edges)
+      const subItemIds = Array.isArray(item.properties['Sub-item']) ? item.properties['Sub-item'] : [];
+      const hasChildren = edges.some((e) => e.source === item.id) || subItemIds.length > 0;
       const childrenVisible = edges
         .filter((e) => e.source === item.id)
         .every((e) => !hiddenNodes.has(e.target));
@@ -220,7 +197,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         : undefined;
 
       // Calculate height based on number of sub-items
-      const nodeHeight = calculateNodeHeight(subItems.length);
+      const nodeHeight = calculateNodeHeight(subItemIds.length);
 
       const newNode: Node = {
         id: item.id,
@@ -235,8 +212,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           visibleProperties: [], // Hide properties on node
           hasChildren,
           childrenVisible,
-          subItems,
           titleProp,
+          allItems: items,
           onUpdateTitle: (newTitle: string) => {
             updateItemProperty(item.id, titleProp || 'Task Plan', newTitle);
           },
@@ -427,7 +404,29 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           },
           url: '',
         };
-        setItems((items) => [...items, newSubItem]);
+
+        // Update parent's Sub-item property to include the new sub-item
+        const parentItem = items.find((i) => i.id === parentId);
+        if (parentItem) {
+          const currentSubItems = Array.isArray(parentItem.properties['Sub-item'])
+            ? parentItem.properties['Sub-item']
+            : [];
+          const updatedSubItems = [...currentSubItems, result.itemId];
+
+          // Update parent in Notion
+          await updateItemProperty(parentId, 'Sub-item', updatedSubItems);
+
+          // Update local state with both the new sub-item and updated parent
+          setItems((items) =>
+            items.map((item) =>
+              item.id === parentId
+                ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
+                : item
+            ).concat([newSubItem])
+          );
+        } else {
+          setItems((items) => [...items, newSubItem]);
+        }
 
         // Refresh the parent node to show the new sub-item
         refreshNodeSubItems(parentId);
@@ -460,7 +459,30 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       const result = await response.json();
 
       if (result.success) {
-        setItems((items) => items.filter((item) => item.id !== subItemId));
+        // Update parent's Sub-item property to remove the deleted sub-item
+        const parentItem = items.find((i) => i.id === parentId);
+        if (parentItem) {
+          const currentSubItems = Array.isArray(parentItem.properties['Sub-item'])
+            ? parentItem.properties['Sub-item']
+            : [];
+          const updatedSubItems = currentSubItems.filter((id: string) => id !== subItemId);
+
+          // Update parent in Notion
+          await updateItemProperty(parentId, 'Sub-item', updatedSubItems);
+
+          // Update local state
+          setItems((items) =>
+            items
+              .filter((item) => item.id !== subItemId)
+              .map((item) =>
+                item.id === parentId
+                  ? { ...item, properties: { ...item.properties, 'Sub-item': updatedSubItems } }
+                  : item
+              )
+          );
+        } else {
+          setItems((items) => items.filter((item) => item.id !== subItemId));
+        }
 
         // Refresh the parent node
         refreshNodeSubItems(parentId);

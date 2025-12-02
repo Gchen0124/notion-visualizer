@@ -9,6 +9,8 @@ interface NotionNodeData {
   color: string;
   gradientColors?: { start: string; end: string };
   visibleProperties: string[];
+  titleProp: string;
+  allItems: any[];
   onUpdateTitle: (newTitle: string) => void;
   onUpdateProperty: (propName: string, value: any) => void;
   onUpdateColor: (color: string) => void;
@@ -20,7 +22,6 @@ interface NotionNodeData {
   onReorderSubItems?: (subItemId: string, direction: 'up' | 'down') => void;
   hasChildren?: boolean;
   childrenVisible?: boolean;
-  subItems?: Array<{ id: string; title: string; color?: string }>;
 }
 
 function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
@@ -42,6 +43,21 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
     : `linear-gradient(135deg, ${data.color}, ${data.color})`;
 
   const borderColor = data.gradientColors ? data.gradientColors.start : data.color;
+
+  // Read Sub-item property directly from properties (it's an array of IDs)
+  const subItemIds = Array.isArray(data.properties['Sub-item']) ? data.properties['Sub-item'] : [];
+
+  // Map IDs to actual items with titles
+  const subItems = subItemIds.map((id: string) => {
+    const item = data.allItems.find((i) => i.id === id);
+    const itemTitle = item?.properties[data.titleProp] || 'Untitled';
+    const itemColor = item?.properties.canvas_gradient_start || item?.properties.canvas_color || '#6b7280';
+    return {
+      id,
+      title: itemTitle,
+      color: itemColor,
+    };
+  });
 
   return (
     <div className="relative w-full h-full">
@@ -216,7 +232,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
-                Sub-items {data.subItems && data.subItems.length > 0 && `(${data.subItems.length})`}
+                Sub-items {subItems && subItems.length > 0 && `(${subItems.length})`}
               </p>
               {data.onAddSubItem && (
                 <button
@@ -232,8 +248,8 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
               )}
             </div>
 
-            {data.subItems && data.subItems.length > 0 ? (
-              data.subItems.map((subItem, index) => (
+            {subItems && subItems.length > 0 ? (
+              subItems.map((subItem, index) => (
                 <div
                   key={subItem.id}
                   className="group px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md"
@@ -258,7 +274,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
                         </button>
                       )}
                       {/* Move down button */}
-                      {index < data.subItems.length - 1 && data.onReorderSubItems && (
+                      {index < subItems.length - 1 && data.onReorderSubItems && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
