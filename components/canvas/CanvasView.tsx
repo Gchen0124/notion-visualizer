@@ -195,6 +195,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         ? { x: savedX, y: savedY }
         : { x: Math.random() * 400, y: Math.random() * 400 };
 
+      console.log('[CanvasView] Item position - savedX:', savedX, 'savedY:', savedY, 'final position:', position);
+
       // Get gradient colors or fallback to solid color
       const gradientStart = item.properties.canvas_gradient_start;
       const gradientEnd = item.properties.canvas_gradient_end;
@@ -264,7 +266,15 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         },
       };
 
-      setNodes((nds) => [...nds, newNode]);
+      console.log('[CanvasView] Current nodes count before adding:', nodes.length);
+      console.log('[CanvasView] About to add node:', newNode.id, 'at position:', newNode.position);
+
+      setNodes((nds) => {
+        const updatedNodes = [...nds, newNode];
+        console.log('[CanvasView] Nodes count after adding:', updatedNodes.length);
+        return updatedNodes;
+      });
+
       setShowSearch(false);
       setSearchTerm('');
     },
@@ -682,7 +692,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
   const filteredItems = items.filter((item) => {
     // Filter out items already on canvas
-    if (nodes.some((node) => node.id === item.id)) {
+    const isOnCanvas = nodes.some((node) => node.id === item.id);
+    if (isOnCanvas) {
       return false;
     }
 
@@ -694,6 +705,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     const title = item.properties[titleProp || Object.keys(item.properties)[0]] || '';
     return title.toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  console.log('[CanvasView] Total items:', items.length, 'Nodes on canvas:', nodes.length, 'Filtered items:', filteredItems.length);
 
   if (loading) {
     return (
