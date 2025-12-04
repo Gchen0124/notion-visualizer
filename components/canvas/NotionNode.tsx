@@ -248,7 +248,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
               )}
             </div>
 
-            {subItems && subItems.length > 0 ? (
+            {data.childrenVisible && subItems && subItems.length > 0 ? (
               subItems.map((subItem, index) => (
                 <div
                   key={subItem.id}
@@ -305,9 +305,13 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
                   </div>
                 </div>
               ))
-            ) : (
+            ) : data.childrenVisible ? (
               <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
                 No sub-items yet. Click "Add" to create one.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
+                Sub-items hidden. Click the eye icon to show.
               </p>
             )}
           </div>

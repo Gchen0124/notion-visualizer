@@ -82,43 +82,26 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     fetchData();
   }, [apiKey, dataSourceId]);
 
-  // Toggle sub-items visibility
+  // Toggle sub-items visibility within the block
   const toggleSubItems = useCallback(
     (nodeId: string) => {
-      const childEdges = edges.filter((e) => e.source === nodeId);
-      const childIds = childEdges.map((e) => e.target);
-
-      setHiddenNodes((hidden) => {
-        const newHidden = new Set(hidden);
-        const childrenVisible = !childIds.some((id) => hidden.has(id));
-
-        if (childrenVisible) {
-          // Hide children
-          childIds.forEach((id) => newHidden.add(id));
-        } else {
-          // Show children
-          childIds.forEach((id) => newHidden.delete(id));
-        }
-
-        return newHidden;
-      });
-
-      // Update node to reflect visibility state
       setNodes((nds) =>
-        nds.map((node) =>
-          node.id === nodeId
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  childrenVisible: !childIds.some((id) => hiddenNodes.has(id)),
-                },
-              }
-            : node
-        )
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            const currentVisibility = node.data.childrenVisible ?? true;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                childrenVisible: !currentVisibility,
+              },
+            };
+          }
+          return node;
+        })
       );
     },
-    [edges, hiddenNodes, setNodes]
+    [setNodes]
   );
 
   // Calculate node height based on sub-items
@@ -184,9 +167,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       // Check if this item has children (from Sub-item property or edges)
       const subItemIds = Array.isArray(item.properties['Sub-item']) ? item.properties['Sub-item'] : [];
       const hasChildren = edges.some((e) => e.source === item.id) || subItemIds.length > 0;
-      const childrenVisible = edges
-        .filter((e) => e.source === item.id)
-        .every((e) => !hiddenNodes.has(e.target));
+      // Default to showing sub-items (true)
+      const childrenVisible = true;
 
       // Use saved canvas position or random position
       // Validate saved position - only use if it's reasonable (within visible canvas range)
