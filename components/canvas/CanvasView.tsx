@@ -43,6 +43,17 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa'
   );
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [showSaveView, setShowSaveView] = useState(false);
+  const [showLoadView, setShowLoadView] = useState(false);
+  const [savedViews, setSavedViews] = useState<{name: string, itemIds: string[]}[]>([]);
+
+  // Load saved views from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(`canvas_views_${dataSourceId}`);
+    if (saved) {
+      setSavedViews(JSON.parse(saved));
+    }
+  }, [dataSourceId]);
 
   // Fetch database items
   useEffect(() => {
@@ -711,6 +722,48 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     return title.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  // Save current view
+  const saveCurrentView = () => {
+    const viewName = prompt('Enter a name for this view:');
+    if (!viewName) return;
+
+    const currentItemIds = nodes.map(n => n.id);
+    const newView = { name: viewName, itemIds: currentItemIds };
+
+    const updatedViews = [...savedViews, newView];
+    setSavedViews(updatedViews);
+    localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+
+    alert(`View "${viewName}" saved with ${currentItemIds.length} items!`);
+  };
+
+  // Load a saved view
+  const loadView = (view: {name: string, itemIds: string[]}) => {
+    // Clear current canvas
+    setNodes([]);
+    setEdges([]);
+
+    // Add all items from the view
+    view.itemIds.forEach(itemId => {
+      const item = items.find(i => i.id === itemId);
+      if (item) {
+        addItemToCanvas(item);
+      }
+    });
+
+    setShowLoadView(false);
+    alert(`Loaded view "${view.name}" with ${view.itemIds.length} items!`);
+  };
+
+  // Delete a saved view
+  const deleteView = (viewName: string) => {
+    if (!confirm(`Delete view "${viewName}"?`)) return;
+
+    const updatedViews = savedViews.filter(v => v.name !== viewName);
+    setSavedViews(updatedViews);
+    localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+  };
+
   console.log('[CanvasView] Total items:', items.length, 'Nodes on canvas:', nodes.length, 'Filtered items:', filteredItems.length);
 
   if (loading) {
@@ -730,6 +783,20 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
         >
           🔍 Add Item
+        </button>
+
+        <button
+          onClick={saveCurrentView}
+          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 w-full"
+        >
+          💾 Save View
+        </button>
+
+        <button
+          onClick={() => setShowLoadView(!showLoadView)}
+          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 w-full"
+        >
+          📂 Load View ({savedViews.length})
         </button>
 
         {showSearch && (
@@ -776,6 +843,39 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
                     </button>
                   );
                 })
+              )}
+            </div>
+          </div>
+        )}
+
+        {showLoadView && (
+          <div className="bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-80 border border-white/20">
+            <h3 className="font-semibold mb-3 text-sm">Saved Views</h3>
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {savedViews.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                  No saved views yet. Save your current canvas layout!
+                </div>
+              ) : (
+                savedViews.map((view) => (
+                  <div
+                    key={view.name}
+                    className="flex items-center justify-between p-2 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded transition-colors"
+                  >
+                    <button
+                      onClick={() => loadView(view)}
+                      className="flex-1 text-left text-sm font-medium"
+                    >
+                      {view.name} ({view.itemIds.length} items)
+                    </button>
+                    <button
+                      onClick={() => deleteView(view.name)}
+                      className="ml-2 px-2 py-1 text-xs bg-red-500/80 hover:bg-red-600 text-white rounded transition-colors"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                ))
               )}
             </div>
           </div>
