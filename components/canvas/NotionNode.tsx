@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect, useRef } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 
 interface NotionNodeData {
@@ -28,6 +28,37 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(data.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+  const colorButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close color picker when clicking outside
+  useEffect(() => {
+    if (!showColorPicker) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      // Don't close if clicking the color button itself
+      if (colorButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      // Close if clicking outside the color picker
+      if (colorPickerRef.current && !colorPickerRef.current.contains(target)) {
+        setShowColorPicker(false);
+      }
+    };
+
+    // Use setTimeout to add listener after current click event finishes
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showColorPicker]);
 
   const handleTitleBlur = () => {
     setIsEditingTitle(false);
@@ -128,6 +159,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
                 <div className="flex items-center space-x-1">
                   {/* Color picker button */}
                   <button
+                    ref={colorButtonRef}
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowColorPicker(!showColorPicker);
@@ -167,7 +199,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
 
           {/* Color picker dropdown */}
           {showColorPicker && (
-            <div className="absolute top-12 right-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
+            <div ref={colorPickerRef} className="absolute top-12 right-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
               <h4 className="text-xs font-semibold mb-3">Background Colors</h4>
 
               {/* Custom color pickers */}
@@ -328,6 +360,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
           <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center space-x-2 px-4">
             {/* Color picker button */}
             <button
+              ref={colorButtonRef}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowColorPicker(!showColorPicker);
