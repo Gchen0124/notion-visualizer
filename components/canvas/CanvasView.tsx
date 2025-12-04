@@ -166,6 +166,12 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   // Add item to canvas
   const addItemToCanvas = useCallback(
     (item: any) => {
+      // Check if item is already on canvas
+      if (nodes.some((node) => node.id === item.id)) {
+        console.log('[CanvasView] Item already on canvas:', item.id);
+        return;
+      }
+
       // Use schema to find the correct title property
       const titleProp = schema.find((s) => s.type === 'title')?.name ||
                         Object.keys(item.properties).find((key) =>
@@ -262,7 +268,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       setShowSearch(false);
       setSearchTerm('');
     },
-    [schema, selectedProperties, edges, hiddenNodes, items, setNodes, toggleSubItems, calculateNodeHeight]
+    [schema, selectedProperties, edges, hiddenNodes, items, nodes, setNodes, toggleSubItems, calculateNodeHeight]
   );
 
   // Update item property
@@ -675,6 +681,11 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   );
 
   const filteredItems = items.filter((item) => {
+    // Filter out items already on canvas
+    if (nodes.some((node) => node.id === item.id)) {
+      return false;
+    }
+
     // Use schema to find the actual title property
     const titleProp = schema.find((s) => s.type === 'title')?.name ||
                       Object.keys(item.properties).find((key) =>
