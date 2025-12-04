@@ -189,13 +189,26 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         .every((e) => !hiddenNodes.has(e.target));
 
       // Use saved canvas position or random position
+      // Validate saved position - only use if it's reasonable (within visible canvas range)
       const savedX = item.properties.canvas_x;
       const savedY = item.properties.canvas_y;
-      const position = (savedX !== null && savedX !== undefined && savedY !== null && savedY !== undefined)
-        ? { x: savedX, y: savedY }
-        : { x: Math.random() * 400, y: Math.random() * 400 };
+      const isValidPosition = (
+        savedX !== null && savedX !== undefined &&
+        savedY !== null && savedY !== undefined &&
+        savedX >= -500 && savedX <= 3000 &&
+        savedY >= -500 && savedY <= 3000
+      );
 
-      console.log('[CanvasView] Item position - savedX:', savedX, 'savedY:', savedY, 'final position:', position);
+      // Generate better spread positions for new items
+      const existingNodeCount = nodes.length;
+      const spreadX = (existingNodeCount % 4) * 300; // Spread horizontally
+      const spreadY = Math.floor(existingNodeCount / 4) * 250; // Spread vertically after 4 items
+
+      const position = isValidPosition
+        ? { x: savedX, y: savedY }
+        : { x: 100 + spreadX, y: 100 + spreadY };
+
+      console.log('[CanvasView] Item position - savedX:', savedX, 'savedY:', savedY, 'isValidPosition:', isValidPosition, 'final position:', position);
 
       // Get gradient colors or fallback to solid color
       const gradientStart = item.properties.canvas_gradient_start;
@@ -841,6 +854,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       >
         <Background />
         <Controls />
+        <MiniMap />
       </ReactFlow>
 
       {/* Property Editor Modal */}
