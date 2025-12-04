@@ -79,9 +79,9 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
 
       {/* Main card */}
       <div
-        className={`w-full h-full rounded-xl backdrop-blur-md transition-all duration-200 flex flex-col ${
-          selected ? 'ring-2 ring-offset-2 ring-offset-transparent shadow-2xl' : 'shadow-lg'
-        }`}
+        className={`w-full h-full rounded-xl backdrop-blur-md transition-all duration-200 ${
+          data.childrenVisible ? 'flex flex-col' : 'flex flex-col justify-center'
+        } ${selected ? 'ring-2 ring-offset-2 ring-offset-transparent shadow-2xl' : 'shadow-lg'}`}
         style={{
           background: gradientStyle,
           borderWidth: '2px',
@@ -92,9 +92,13 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
             : `0 4px 16px ${borderColor}40`,
         }}
       >
-        {/* Header with title */}
+        {/* Header with title - different layout based on childrenVisible */}
         <div
-          className="px-4 py-3 rounded-t-xl cursor-move relative bg-white/10 dark:bg-black/10"
+          className={`px-4 py-3 cursor-move relative ${
+            data.childrenVisible
+              ? 'rounded-t-xl bg-white/10 dark:bg-black/10'
+              : 'bg-transparent'
+          }`}
         >
           {isEditingTitle ? (
             <input
@@ -114,46 +118,50 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
             />
           ) : (
             <div
-              className="flex items-center justify-between"
+              className={`flex items-center ${
+                data.childrenVisible ? 'justify-between' : 'justify-center'
+              }`}
               onClick={() => setIsEditingTitle(true)}
             >
-              <h3 className="font-semibold text-sm flex-1 cursor-text">{data.label}</h3>
-              <div className="flex items-center space-x-1">
-                {/* Color picker button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowColorPicker(!showColorPicker);
-                  }}
-                  className="p-1 w-6 h-6 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
-                  style={{ background: gradientStyle }}
-                  title="Change colors"
-                />
-                {data.onOpenPropertyEditor && (
+              <h3 className="font-semibold text-sm cursor-text">{data.label}</h3>
+              {data.childrenVisible && (
+                <div className="flex items-center space-x-1">
+                  {/* Color picker button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      data.onOpenPropertyEditor();
+                      setShowColorPicker(!showColorPicker);
                     }}
-                    className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
-                    title="Edit properties"
-                  >
-                    ⚙️
-                  </button>
-                )}
-                {data.hasChildren && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      data.onToggleSubItems && data.onToggleSubItems();
-                    }}
-                    className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
-                    title={data.childrenVisible ? 'Hide sub-items' : 'Show sub-items'}
-                  >
-                    {data.childrenVisible ? '👁️' : '👁️‍🗨️'}
-                  </button>
-                )}
-              </div>
+                    className="p-1 w-6 h-6 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
+                    style={{ background: gradientStyle }}
+                    title="Change colors"
+                  />
+                  {data.onOpenPropertyEditor && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        data.onOpenPropertyEditor();
+                      }}
+                      className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                      title="Edit properties"
+                    >
+                      ⚙️
+                    </button>
+                  )}
+                  {data.hasChildren && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        data.onToggleSubItems && data.onToggleSubItems();
+                      }}
+                      className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                      title={data.childrenVisible ? 'Hide sub-items' : 'Show sub-items'}
+                    >
+                      {data.childrenVisible ? '👁️' : '👁️‍🗨️'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -227,28 +235,29 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
           )}
         </div>
 
-        {/* Content area - show sub-items as nested blocks */}
-        <div className="flex-1 px-4 py-3 overflow-auto">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
-                Sub-items {subItems && subItems.length > 0 && `(${subItems.length})`}
-              </p>
-              {data.onAddSubItem && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    data.onAddSubItem && data.onAddSubItem();
-                  }}
-                  className="px-2 py-1 text-xs bg-white/60 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-black/50 rounded-md transition-colors border border-white/40"
-                  title="Add sub-item"
-                >
-                  ➕ Add
-                </button>
-              )}
-            </div>
+        {/* Content area - only show when childrenVisible is true */}
+        {data.childrenVisible && (
+          <div className="flex-1 px-4 py-3 overflow-auto">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
+                  Sub-items {subItems && subItems.length > 0 && `(${subItems.length})`}
+                </p>
+                {data.onAddSubItem && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      data.onAddSubItem && data.onAddSubItem();
+                    }}
+                    className="px-2 py-1 text-xs bg-white/60 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-black/50 rounded-md transition-colors border border-white/40"
+                    title="Add sub-item"
+                  >
+                    ➕ Add
+                  </button>
+                )}
+              </div>
 
-            {data.childrenVisible && subItems && subItems.length > 0 ? (
+              {subItems && subItems.length > 0 ? (
               subItems.map((subItem, index) => (
                 <div
                   key={subItem.id}
@@ -305,17 +314,56 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
                   </div>
                 </div>
               ))
-            ) : data.childrenVisible ? (
+            ) : (
               <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
                 No sub-items yet. Click "Add" to create one.
               </p>
-            ) : (
-              <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
-                Sub-items hidden. Click the eye icon to show.
-              </p>
+            )}
+            </div>
+          </div>
+        )}
+
+        {/* Footer with icons - only show when childrenVisible is false */}
+        {!data.childrenVisible && (
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center space-x-2 px-4">
+            {/* Color picker button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowColorPicker(!showColorPicker);
+              }}
+              className="p-1.5 w-7 h-7 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
+              style={{ background: gradientStyle }}
+              title="Change colors"
+            />
+            {/* Settings icon */}
+            {data.onOpenPropertyEditor && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onOpenPropertyEditor();
+                }}
+                className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                title="Edit properties"
+              >
+                ⚙️
+              </button>
+            )}
+            {/* Show sub-items icon */}
+            {data.hasChildren && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onToggleSubItems && data.onToggleSubItems();
+                }}
+                className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                title="Show sub-items"
+              >
+                👁️‍🗨️
+              </button>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       <style jsx>{`
