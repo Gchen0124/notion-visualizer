@@ -37,10 +37,10 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   const [loading, setLoading] = useState(true);
   const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
   const [canvasBgGradientStart, setCanvasBgGradientStart] = useState(
-    localStorage.getItem('canvas_bg_gradient_start') || '#f3e8ff'
+    localStorage.getItem('canvas_bg_gradient_start') || '#fff25c'
   );
   const [canvasBgGradientEnd, setCanvasBgGradientEnd] = useState(
-    localStorage.getItem('canvas_bg_gradient_end') || '#dbeafe'
+    localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa'
   );
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
@@ -192,12 +192,12 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
       console.log('[CanvasView] Item position - savedX:', savedX, 'savedY:', savedY, 'isValidPosition:', isValidPosition, 'final position:', position);
 
-      // Get gradient colors or fallback to solid color
+      // Get gradient colors or fallback to default white gradient
       const gradientStart = item.properties.canvas_gradient_start;
       const gradientEnd = item.properties.canvas_gradient_end;
       const gradientColors = (gradientStart && gradientEnd)
         ? { start: gradientStart, end: gradientEnd }
-        : undefined;
+        : { start: '#ffffff', end: '#ededed' };
 
       // Calculate height based on number of sub-items
       const nodeHeight = calculateNodeHeight(subItemIds.length);
@@ -210,7 +210,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
         data: {
           label: title,
           properties: item.properties,
-          color: item.properties.canvas_color || '#9333ea',
+          color: item.properties.canvas_color || '#ffffff',
           gradientColors,
           visibleProperties: [], // Hide properties on node
           hasChildren,
