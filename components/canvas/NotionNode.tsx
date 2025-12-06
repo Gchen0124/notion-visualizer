@@ -155,7 +155,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
               onClick={() => setIsEditingTitle(true)}
             >
               <h3 className={`font-semibold cursor-text ${
-                data.childrenVisible ? 'text-sm' : 'text-lg'
+                data.childrenVisible ? 'text-sm' : 'text-2xl'
               }`}>{data.label}</h3>
               {data.childrenVisible && (
                 <div className="flex items-center space-x-1">
