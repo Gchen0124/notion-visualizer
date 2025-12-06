@@ -792,17 +792,44 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
         <button
           onClick={saveCurrentView}
-          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 w-full"
+          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
         >
           💾 Save View
         </button>
 
         <button
           onClick={() => setShowLoadView(!showLoadView)}
-          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 w-full"
+          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
         >
           📂 Load View ({savedViews.length})
         </button>
+
+        {/* Canvas Background Color Picker - Compact */}
+        <div className="bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg p-3 border border-white/20">
+          <h3 className="font-semibold mb-2 text-xs">Canvas BG</h3>
+          <div className="space-y-2">
+            <input
+              type="color"
+              value={canvasBgGradientStart}
+              onChange={(e) => {
+                setCanvasBgGradientStart(e.target.value);
+                localStorage.setItem('canvas_bg_gradient_start', e.target.value);
+              }}
+              className="w-full h-8 rounded cursor-pointer border border-gray-300"
+              title="Gradient Start"
+            />
+            <input
+              type="color"
+              value={canvasBgGradientEnd}
+              onChange={(e) => {
+                setCanvasBgGradientEnd(e.target.value);
+                localStorage.setItem('canvas_bg_gradient_end', e.target.value);
+              }}
+              className="w-full h-8 rounded cursor-pointer border border-gray-300"
+              title="Gradient End"
+            />
+          </div>
+        </div>
 
         {showSearch && (
           <div className="bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-80 border border-white/20">
@@ -885,37 +912,6 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Canvas Background Color Picker */}
-      <div className="absolute top-4 right-4 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-64 border border-white/20">
-        <h3 className="font-semibold mb-3 text-sm">Canvas Background</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium mb-1.5">Gradient Start</label>
-            <input
-              type="color"
-              value={canvasBgGradientStart}
-              onChange={(e) => {
-                setCanvasBgGradientStart(e.target.value);
-                localStorage.setItem('canvas_bg_gradient_start', e.target.value);
-              }}
-              className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">Gradient End</label>
-            <input
-              type="color"
-              value={canvasBgGradientEnd}
-              onChange={(e) => {
-                setCanvasBgGradientEnd(e.target.value);
-                localStorage.setItem('canvas_bg_gradient_end', e.target.value);
-              }}
-              className="w-full h-10 rounded-lg cursor-pointer border-2 border-gray-300 dark:border-gray-600"
-            />
-          </div>
-        </div>
       </div>
 
       {/* React Flow Canvas */}
