@@ -723,7 +723,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   });
 
   // Save current view
-  const saveCurrentView = () => {
+  const saveCurrentView = async () => {
     const viewName = prompt('Enter a name for this view:');
     if (!viewName) return;
 
@@ -733,6 +733,11 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     const updatedViews = [...savedViews, newView];
     setSavedViews(updatedViews);
     localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+
+    // Save view name to canvas_view property for each item in Notion
+    for (const nodeId of currentItemIds) {
+      await updateItemProperty(nodeId, 'canvas_view', viewName);
+    }
 
     alert(`View "${viewName}" saved with ${currentItemIds.length} items!`);
   };
