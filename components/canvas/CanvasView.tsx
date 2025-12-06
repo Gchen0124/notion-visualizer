@@ -781,33 +781,33 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
   return (
     <div className="h-screen relative">
-      {/* Toolbar */}
-      <div className="absolute top-4 left-4 z-10 space-y-2">
+      {/* Compact Toolbar */}
+      <div className="absolute top-4 left-4 z-10 space-y-1.5">
         <button
           onClick={() => setShowSearch(!showSearch)}
-          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
+          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
         >
           🔍 Add Item
         </button>
 
         <button
           onClick={saveCurrentView}
-          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
+          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
         >
           💾 Save View
         </button>
 
         <button
           onClick={() => setShowLoadView(!showLoadView)}
-          className="px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20"
+          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
         >
           📂 Load View ({savedViews.length})
         </button>
 
         {/* Canvas Background Color Picker - Compact */}
-        <div className="bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg p-3 border border-white/20">
-          <h3 className="font-semibold mb-2 text-xs">Canvas BG</h3>
-          <div className="space-y-2">
+        <div className="bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg p-2 border border-white/20">
+          <h3 className="font-semibold mb-1.5 text-xs">Canvas BG</h3>
+          <div className="space-y-1.5">
             <input
               type="color"
               value={canvasBgGradientStart}
@@ -815,7 +815,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
                 setCanvasBgGradientStart(e.target.value);
                 localStorage.setItem('canvas_bg_gradient_start', e.target.value);
               }}
-              className="w-full h-8 rounded cursor-pointer border border-gray-300"
+              className="w-full h-7 rounded cursor-pointer border border-gray-300"
               title="Gradient Start"
             />
             <input
@@ -825,7 +825,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
                 setCanvasBgGradientEnd(e.target.value);
                 localStorage.setItem('canvas_bg_gradient_end', e.target.value);
               }}
-              className="w-full h-8 rounded cursor-pointer border border-gray-300"
+              className="w-full h-7 rounded cursor-pointer border border-gray-300"
               title="Gradient End"
             />
           </div>
