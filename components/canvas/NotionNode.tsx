@@ -301,7 +301,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
                   }}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="flex-1">{subItem.title}</span>
+                    <span className="flex-1 text-white">{subItem.title}</span>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {/* Move up button */}
                       {index > 0 && data.onReorderSubItems && (
