@@ -23,6 +23,15 @@ export interface DailyEntry {
   pageId: string | null;
 }
 
+export interface WeekEntry {
+  weekTitle: string;      // e.g., "2025|dec|w2"
+  startDate: string;      // e.g., "2025-12-08"
+  endDate: string;        // e.g., "2025-12-14"
+  weekPlan: string;
+  weekReality: string;
+  pageId: string | null;
+}
+
 export async function getDailyRitualYear(year: number): Promise<DailyEntry[]> {
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
@@ -213,7 +222,109 @@ export async function updateDailyEntry(
   }
 }
 
+export async function getWeekPlanningYear(year: number): Promise<WeekEntry[]> {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+
+  try {
+    // Fetch weeks that overlap with the year
+    // This catches cross-year weeks (e.g., Dec 29 - Jan 4)
+    let allResults: any[] = [];
+    let hasMore = true;
+    let startCursor: string | undefined = undefined;
+
+    while (hasMore) {
+      const response: any = await notion.dataSources.query({
+        data_source_id: DATABASES.WEEK_PLANNING,
+        filter: {
+          and: [
+            { property: 'Start Date', date: { on_or_before: yearEnd } },
+            { property: 'End Date', date: { on_or_after: yearStart } }
+          ]
+        },
+        sorts: [{ property: 'Start Date', direction: 'ascending' }],
+        page_size: 100,
+        ...(startCursor ? { start_cursor: startCursor } : {}),
+      });
+
+      allResults = [...allResults, ...response.results];
+      hasMore = response.has_more;
+      startCursor = response.next_cursor;
+    }
+
+    console.log(`Fetched ${allResults.length} weeks for year ${year}`);
+
+    const weeks: WeekEntry[] = allResults.map((page: any) => {
+      const weekTitle = getTitleProperty(page, 'Week');
+      const startDate = page.properties['Start Date']?.date?.start || '';
+      const endDate = page.properties['End Date']?.date?.start || '';
+      const weekPlan = getTextProperty(page, 'week plan');
+      const weekReality = getTextProperty(page, 'week reality');
+
+      return {
+        weekTitle,
+        startDate,
+        endDate,
+        weekPlan,
+        weekReality,
+        pageId: page.id,
+      };
+    });
+
+    // Filter out weeks without valid dates
+    return weeks.filter(w => w.startDate && w.endDate);
+  } catch (error) {
+    console.error('Error fetching week planning data:', error);
+    throw error;
+  }
+}
+
+export async function updateWeekEntry(
+  pageId: string,
+  type: 'plan' | 'reality',
+  content: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const propertyName = type === 'plan' ? 'week plan' : 'week reality';
+
+    await (notion as any).pages.update({
+      page_id: pageId,
+      properties: {
+        [propertyName]: {
+          rich_text: [
+            {
+              text: {
+                content: content,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error updating week entry:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to update week entry',
+    };
+  }
+}
+
 // Helper functions
+function getTitleProperty(page: any, propertyName: string): string {
+  if (!page) return '';
+  const property = page.properties[propertyName];
+  if (!property) return '';
+
+  if (property.type === 'title' && property.title?.length > 0) {
+    return property.title.map((t: any) => t.plain_text).join('');
+  }
+
+  return '';
+}
+
 function getTextProperty(page: any, propertyName: string): string {
   if (!page) return '';
   const property = page.properties[propertyName];
