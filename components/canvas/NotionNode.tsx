@@ -24,7 +24,8 @@ interface NotionNodeData {
   childrenVisible?: boolean;
 }
 
-function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData }) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(data.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -80,7 +81,7 @@ function NotionNode({ data, selected }: NodeProps<NotionNodeData>) {
 
   // Map IDs to actual items with titles
   const subItems = subItemIds.map((id: string) => {
-    const item = data.allItems.find((i) => i.id === id);
+    const item = data.allItems.find((i: any) => i.id === id);
     const itemTitle = item?.properties[data.titleProp] || 'Untitled';
     const itemColor = item?.properties.canvas_gradient_start || item?.properties.canvas_color || '#6b7280';
     return {

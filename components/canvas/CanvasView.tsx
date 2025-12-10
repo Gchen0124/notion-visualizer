@@ -17,7 +17,8 @@ import '@xyflow/react/dist/style.css';
 import NotionNode from './NotionNode';
 import PropertyEditorModal from './PropertyEditorModal';
 
-const nodeTypes = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const nodeTypes: any = {
   notionNode: NotionNode,
 };
 
@@ -26,9 +27,14 @@ interface CanvasViewProps {
   dataSourceId: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppNode = Node<any, string>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppEdge = Edge<any>;
+
 export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
   const [items, setItems] = useState<any[]>([]);
   const [schema, setSchema] = useState<any[]>([]);
   const [selectedProperties, setSelectedProperties] = useState<string[]>([]);
@@ -45,15 +51,40 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [showSaveView, setShowSaveView] = useState(false);
   const [showLoadView, setShowLoadView] = useState(false);
-  const [savedViews, setSavedViews] = useState<{name: string, itemIds: string[]}[]>([]);
+  const [savedViews, setSavedViews] = useState<{id?: string, name: string, itemIds: string[]}[]>([]);
+  const [viewsSource, setViewsSource] = useState<'notion' | 'local'>('local');
 
-  // Load saved views from localStorage on mount
+  // Load saved views - try Notion first, fallback to localStorage
   useEffect(() => {
-    const saved = localStorage.getItem(`canvas_views_${dataSourceId}`);
-    if (saved) {
-      setSavedViews(JSON.parse(saved));
+    async function loadViews() {
+      try {
+        // Try fetching from Notion first
+        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}`);
+        const result = await response.json();
+
+        if (result.success && result.views && result.views.length > 0) {
+          console.log('[CanvasView] Loaded views from Notion:', result.views.length);
+          setSavedViews(result.views);
+          setViewsSource('notion');
+          // Also sync to localStorage as backup
+          localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(result.views));
+          return;
+        }
+      } catch (error) {
+        console.warn('[CanvasView] Failed to fetch views from Notion, falling back to localStorage:', error);
+      }
+
+      // Fallback to localStorage
+      const saved = localStorage.getItem(`canvas_views_${dataSourceId}`);
+      if (saved) {
+        console.log('[CanvasView] Loaded views from localStorage');
+        setSavedViews(JSON.parse(saved));
+        setViewsSource('local');
+      }
     }
-  }, [dataSourceId]);
+
+    loadViews();
+  }, [apiKey, dataSourceId]);
 
   // Fetch database items
   useEffect(() => {
@@ -213,7 +244,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       // Calculate height based on number of sub-items
       const nodeHeight = calculateNodeHeight(subItemIds.length);
 
-      const newNode: Node = {
+      const newNode: AppNode = {
         id: item.id,
         type: 'notionNode',
         position,
@@ -722,33 +753,130 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     return title.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  // Save current view
+  // Save current view - save to Notion first, then localStorage
   const saveCurrentView = async () => {
     const viewName = prompt('Enter a name for this view:');
     if (!viewName) return;
 
     const currentItemIds = nodes.map(n => n.id);
-    const newView = { name: viewName, itemIds: currentItemIds };
 
-    const updatedViews = [...savedViews, newView];
-    setSavedViews(updatedViews);
-    localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+    // Collect current positions of all items on canvas
+    const itemPositions = nodes.map(node => ({
+      id: node.id,
+      x: Math.round(node.position.x),
+      y: Math.round(node.position.y),
+      width: node.style?.width ? Number(node.style.width) : undefined,
+      color: node.data.color,
+      gradientStart: node.data.gradientColors?.start,
+      gradientEnd: node.data.gradientColors?.end,
+    }));
 
-    // Save view name to canvas_view property for each item in Notion
-    for (const nodeId of currentItemIds) {
-      await updateItemProperty(nodeId, 'canvas_view', viewName);
+    // Check if view with same name exists
+    const existingView = savedViews.find(v => v.name === viewName);
+
+    try {
+      // Save to Notion first (including positions)
+      const response = await fetch('/api/canvas-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey, // Pass the API key
+          name: viewName,
+          itemIds: currentItemIds,
+          existingViewId: existingView?.id, // Update if exists
+          itemPositions, // Include positions for each item
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        console.log('[CanvasView] Saved view to Notion:', viewName, 'with', itemPositions.length, 'item positions');
+
+        // Update local state with Notion view ID
+        const newView = { id: result.viewId, name: viewName, itemIds: currentItemIds };
+
+        let updatedViews;
+        if (existingView) {
+          // Update existing view
+          updatedViews = savedViews.map(v =>
+            v.name === viewName ? newView : v
+          );
+        } else {
+          // Add new view
+          updatedViews = [...savedViews, newView];
+        }
+
+        setSavedViews(updatedViews);
+        setViewsSource('notion');
+
+        // Also save to localStorage as backup
+        localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+
+        alert(`View "${viewName}" saved with ${currentItemIds.length} items and their positions!`);
+      } else {
+        throw new Error(result.error || 'Failed to save to Notion');
+      }
+    } catch (error: any) {
+      console.warn('[CanvasView] Failed to save to Notion, saving to localStorage only:', error);
+
+      // Fallback: save to localStorage only
+      const newView = { name: viewName, itemIds: currentItemIds };
+      const updatedViews = existingView
+        ? savedViews.map(v => v.name === viewName ? newView : v)
+        : [...savedViews, newView];
+
+      setSavedViews(updatedViews);
+      setViewsSource('local');
+      localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+
+      alert(`View "${viewName}" saved locally (Notion sync failed: ${error.message})`);
     }
-
-    alert(`View "${viewName}" saved with ${currentItemIds.length} items!`);
   };
 
   // Load a saved view
-  const loadView = (view: {name: string, itemIds: string[]}) => {
+  const loadView = async (view: {id?: string, name: string, itemIds: string[]}) => {
     // Clear current canvas
     setNodes([]);
     setEdges([]);
+    setShowLoadView(false);
 
-    // Add all items from the view
+    // If view has a Notion ID, fetch full item data with positions from Notion
+    if (view.id) {
+      try {
+        console.log(`[CanvasView] Fetching view "${view.name}" from Notion with positions...`);
+
+        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&viewId=${encodeURIComponent(view.id)}`);
+        const result = await response.json();
+
+        if (result.success && result.view) {
+          const viewData = result.view;
+          console.log(`[CanvasView] Fetched ${viewData.items.length} items with positions`);
+
+          // Add items to canvas with their saved positions
+          viewData.items.forEach((notionItem: any) => {
+            // Create an item object that matches the expected format
+            const item = {
+              id: notionItem.id,
+              properties: notionItem.properties,
+              url: '',
+            };
+
+            // The addItemToCanvas function will use canvas_x, canvas_y from properties
+            addItemToCanvas(item);
+          });
+
+          console.log(`[CanvasView] Loaded view "${view.name}" with ${viewData.items.length} items from Notion`);
+          return;
+        } else {
+          console.warn('[CanvasView] Failed to fetch from Notion, falling back to local items:', result.error);
+        }
+      } catch (error) {
+        console.warn('[CanvasView] Error fetching from Notion, falling back to local items:', error);
+      }
+    }
+
+    // Fallback: Add items from local state (without Notion positions)
     view.itemIds.forEach(itemId => {
       const item = items.find(i => i.id === itemId);
       if (item) {
@@ -756,17 +884,39 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       }
     });
 
-    setShowLoadView(false);
-    alert(`Loaded view "${view.name}" with ${view.itemIds.length} items!`);
+    console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items (local fallback)`);
   };
 
-  // Delete a saved view
-  const deleteView = (viewName: string) => {
+  // Delete a saved view - delete from Notion first, then localStorage
+  const deleteView = async (viewName: string) => {
     if (!confirm(`Delete view "${viewName}"?`)) return;
 
+    const viewToDelete = savedViews.find(v => v.name === viewName);
     const updatedViews = savedViews.filter(v => v.name !== viewName);
+
+    // If view has a Notion ID, delete from Notion first
+    if (viewToDelete?.id) {
+      try {
+        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&viewId=${encodeURIComponent(viewToDelete.id)}`, {
+          method: 'DELETE',
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          console.log('[CanvasView] Deleted view from Notion:', viewName);
+        } else {
+          console.warn('[CanvasView] Failed to delete from Notion:', result.error);
+        }
+      } catch (error) {
+        console.warn('[CanvasView] Failed to delete from Notion:', error);
+      }
+    }
+
+    // Update local state and localStorage
     setSavedViews(updatedViews);
     localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+    console.log('[CanvasView] View deleted:', viewName);
   };
 
   console.log('[CanvasView] Total items:', items.length, 'Nodes on canvas:', nodes.length, 'Filtered items:', filteredItems.length);
