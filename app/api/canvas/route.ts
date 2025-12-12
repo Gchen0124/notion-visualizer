@@ -177,7 +177,12 @@ function extractPropertyValue(property: any): any {
     case 'people':
       return property.people?.map((p: any) => p.id) || [];
     case 'files':
-      return property.files?.map((f: any) => f.name) || [];
+      // Extract full file URLs for images/media
+      return property.files?.map((f: any) => ({
+        name: f.name,
+        url: f.type === 'file' ? f.file?.url : f.type === 'external' ? f.external?.url : null,
+        type: f.type,
+      })) || [];
     case 'status':
       return property.status?.name || '';
     default:

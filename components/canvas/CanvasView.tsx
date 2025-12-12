@@ -146,6 +146,28 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     [setNodes]
   );
 
+  // Toggle image background visibility
+  const toggleImage = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            const currentShowImage = node.data.showImage ?? false;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                showImage: !currentShowImage,
+              },
+            };
+          }
+          return node;
+        })
+      );
+    },
+    [setNodes]
+  );
+
   // Calculate node height based on sub-items
   const calculateNodeHeight = useCallback((subItemCount: number) => {
     const baseHeight = 180;
@@ -287,6 +309,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             );
           },
           onToggleSubItems: () => toggleSubItems(item.id),
+          onToggleImage: () => toggleImage(item.id),
           onOpenPropertyEditor: () => setEditingItemId(item.id),
           onAddSubItem: async () => {
             const subItemTitle = prompt('Enter sub-item title:');
@@ -315,7 +338,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
       setShowSearch(false);
       setSearchTerm('');
     },
-    [schema, selectedProperties, edges, hiddenNodes, items, nodes, setNodes, toggleSubItems, calculateNodeHeight]
+    [schema, selectedProperties, edges, hiddenNodes, items, nodes, setNodes, toggleSubItems, toggleImage, calculateNodeHeight]
   );
 
   // Update item property

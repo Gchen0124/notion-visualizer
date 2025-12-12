@@ -20,8 +20,10 @@ interface NotionNodeData {
   onAddSubItem?: () => void;
   onDeleteSubItem?: (subItemId: string) => void;
   onReorderSubItems?: (subItemId: string, direction: 'up' | 'down') => void;
+  onToggleImage?: () => void;
   hasChildren?: boolean;
   childrenVisible?: boolean;
+  showImage?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -91,6 +93,13 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
     };
   });
 
+  // Get image URL from Canvas_Visual property (files type)
+  const canvasVisual = data.properties['Canvas_Visual'];
+  const imageUrl = Array.isArray(canvasVisual) && canvasVisual.length > 0
+    ? canvasVisual[0]?.url
+    : null;
+  const hasImage = !!imageUrl;
+
   return (
     <div className="relative w-full h-full">
       {/* Node Resizer - allows resizing the block */}
@@ -113,9 +122,11 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
       <div
         className={`w-full h-full rounded-xl backdrop-blur-md transition-all duration-200 ${
           data.childrenVisible ? 'flex flex-col' : 'flex flex-col justify-center'
-        } ${selected ? 'ring-2 ring-offset-2 ring-offset-transparent shadow-2xl' : 'shadow-lg'}`}
+        } ${selected ? 'ring-2 ring-offset-2 ring-offset-transparent shadow-2xl' : 'shadow-lg'} overflow-hidden`}
         style={{
-          background: gradientStyle,
+          background: data.showImage && imageUrl
+            ? `url(${imageUrl}) center/cover no-repeat`
+            : gradientStyle,
           borderWidth: '2px',
           borderStyle: 'solid',
           borderColor: '#ffffff40',
@@ -171,6 +182,19 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
                     style={{ background: gradientStyle }}
                     title="Change colors"
                   />
+                  {/* Image toggle button */}
+                  {hasImage && data.onToggleImage && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        data.onToggleImage();
+                      }}
+                      className={`p-1.5 rounded-md transition-colors ${data.showImage ? 'bg-purple-500/50' : 'hover:bg-white/30'}`}
+                      title={data.showImage ? 'Hide image background' : 'Show image background'}
+                    >
+                      🖼️
+                    </button>
+                  )}
                   {data.onOpenPropertyEditor && (
                     <button
                       onClick={(e) => {
@@ -372,6 +396,19 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
               style={{ background: gradientStyle }}
               title="Change colors"
             />
+            {/* Image toggle button */}
+            {hasImage && data.onToggleImage && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onToggleImage();
+                }}
+                className={`p-1.5 rounded-md transition-colors ${data.showImage ? 'bg-purple-500/50' : 'hover:bg-white/30'}`}
+                title={data.showImage ? 'Hide image background' : 'Show image background'}
+              >
+                🖼️
+              </button>
+            )}
             {/* Settings icon */}
             {data.onOpenPropertyEditor && (
               <button
