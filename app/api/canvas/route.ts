@@ -7,10 +7,8 @@ export async function GET(request: NextRequest) {
   const apiKey = searchParams.get('apiKey');
   const dataSourceId = searchParams.get('dataSourceId');
 
-  console.log('[Canvas API] Received apiKey:', apiKey);
-  console.log('[Canvas API] apiKey length:', apiKey?.length);
-  console.log('[Canvas API] apiKey starts with:', apiKey?.substring(0, 10));
-  console.log('[Canvas API] apiKey ends with:', apiKey?.substring(apiKey.length - 10));
+  console.log('[Canvas API] Received apiKey:', apiKey ? `${apiKey.substring(0, 10)}...` : 'null');
+  console.log('[Canvas API] Received dataSourceId:', dataSourceId);
 
   if (!apiKey || !dataSourceId) {
     return NextResponse.json(
@@ -25,7 +23,7 @@ export async function GET(request: NextRequest) {
       notionVersion: '2025-09-03',
     });
 
-    // Fetch all pages from the database
+    // Fetch all pages from the database using dataSources.query (SDK v5.4+)
     let allPages: any[] = [];
     let hasMore = true;
     let startCursor: string | undefined = undefined;
@@ -41,6 +39,8 @@ export async function GET(request: NextRequest) {
       hasMore = response.has_more;
       startCursor = response.next_cursor;
     }
+
+    console.log('[Canvas API] Fetched', allPages.length, 'pages from database');
 
     // Extract schema from first page
     const schema = allPages[0]?.properties

@@ -32,8 +32,21 @@ export default function CanvasPage() {
       return;
     }
 
-    console.log('[Canvas Page] Saving apiKey:', trimmedApiKey);
-    console.log('[Canvas Page] apiKey length:', trimmedApiKey.length);
+    // Validate API key format (should start with secret_ or ntn_)
+    if (!trimmedApiKey.startsWith('secret_') && !trimmedApiKey.startsWith('ntn_')) {
+      alert('Invalid API key format. It should start with "secret_" or "ntn_"');
+      return;
+    }
+
+    // Validate Database ID format (should be a UUID, not an API key)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(trimmedDataSourceId)) {
+      alert('Invalid Database ID format. It should be a UUID like: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx\n\nYou can find it in your Notion database URL.');
+      return;
+    }
+
+    console.log('[Canvas Page] Saving apiKey:', trimmedApiKey.substring(0, 10) + '...');
+    console.log('[Canvas Page] Saving dataSourceId:', trimmedDataSourceId);
 
     localStorage.setItem('notion_api_key', trimmedApiKey);
     localStorage.setItem('notion_data_source_id', trimmedDataSourceId);
