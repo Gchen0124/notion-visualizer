@@ -12,11 +12,11 @@ export default function Navigation() {
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-white/30 dark:bg-black/30 border-b border-white/20">
+    <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-b border-gray-200 dark:border-gray-700 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-purple-600 dark:text-purple-400">
               Notion Visualizer
             </h1>
             <div className="flex space-x-1">
@@ -28,8 +28,8 @@ export default function Navigation() {
                     href={item.href}
                     className={`px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 ${
                       isActive
-                        ? 'bg-white/40 dark:bg-white/10 shadow-lg'
-                        : 'hover:bg-white/20 dark:hover:bg-white/5'
+                        ? 'bg-purple-100 dark:bg-purple-900/40 shadow-md text-purple-700 dark:text-purple-300'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
                     <span>{item.icon}</span>

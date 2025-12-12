@@ -67,15 +67,15 @@ export default function CanvasPage() {
 
   if (!isConnected || showCredentials) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white/80 dark:bg-black/40 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-white/20">
-          <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent text-center">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-purple-900 via-gray-900 to-pink-900">
+        <div className="w-full max-w-md bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-gray-700">
+          <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent text-center">
             Connect Your Notion Database
           </h1>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-2 text-white">
                 Notion Integration Key
               </label>
               <input
@@ -83,16 +83,16 @@ export default function CanvasPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="secret_xxxxxxxxxxxxx or ntn_xxxxxxxxxxxxx"
-                className="w-full px-4 py-3 bg-white/50 dark:bg-black/30 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 transition-all font-mono text-sm"
+                className="w-full px-4 py-3 bg-gray-700/50 text-white placeholder-gray-400 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 transition-all font-mono text-sm border border-gray-600"
                 autoComplete="off"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-400 mt-1">
                 Get from{' '}
                 <a
                   href="https://www.notion.so/my-integrations"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-purple-600 hover:underline"
+                  className="text-purple-400 hover:underline"
                 >
                   notion.so/my-integrations
                 </a>
@@ -100,7 +100,7 @@ export default function CanvasPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-2 text-white">
                 Database Data Source ID
               </label>
               <input
@@ -108,9 +108,9 @@ export default function CanvasPage() {
                 value={dataSourceId}
                 onChange={(e) => setDataSourceId(e.target.value)}
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                className="w-full px-4 py-3 bg-white/50 dark:bg-black/30 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                className="w-full px-4 py-3 bg-gray-700/50 text-white placeholder-gray-400 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 transition-all border border-gray-600"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-400 mt-1">
                 Found in your database URL or via Notion API
               </p>
             </div>
@@ -126,7 +126,7 @@ export default function CanvasPage() {
               {isConnected && (
                 <button
                   onClick={() => setShowCredentials(false)}
-                  className="w-full px-6 py-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-all"
+                  className="w-full px-6 py-3 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-500 transition-all"
                 >
                   Cancel
                 </button>
@@ -134,9 +134,9 @@ export default function CanvasPage() {
             </div>
           </div>
 
-          <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-            <h3 className="font-semibold text-sm mb-2">How to get your credentials:</h3>
-            <ol className="text-xs space-y-1 text-gray-700 dark:text-gray-300">
+          <div className="mt-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+            <h3 className="font-semibold text-sm mb-2 text-white">How to get your credentials:</h3>
+            <ol className="text-xs space-y-1 text-gray-300">
               <li>1. Create an integration at notion.so/my-integrations</li>
               <li>2. Copy the "Integration Token" (API Key)</li>
               <li>3. Share your database with the integration</li>
