@@ -17,8 +17,10 @@ export async function GET(request: NextRequest) {
   try {
     const notion = new Client({
       auth: apiKey,
-      notionVersion: '2022-06-28',
+      notionVersion: '2022-06-28', // blocks API works with this version
     });
+
+    console.log('[Page Blocks API] Fetching blocks for page:', pageId);
 
     // Fetch all blocks from the page
     const blocks: any[] = [];
@@ -37,6 +39,8 @@ export async function GET(request: NextRequest) {
       startCursor = response.next_cursor;
     }
 
+    console.log('[Page Blocks API] Fetched', blocks.length, 'blocks');
+
     // Transform blocks to simpler format for editing
     const simplifiedBlocks = blocks.map((block: any) => ({
       id: block.id,
@@ -45,6 +49,8 @@ export async function GET(request: NextRequest) {
       hasChildren: block.has_children,
       editable: isEditableBlockType(block.type),
     }));
+
+    console.log('[Page Blocks API] Returning', simplifiedBlocks.length, 'simplified blocks');
 
     return NextResponse.json({ success: true, blocks: simplifiedBlocks });
   } catch (error: any) {
@@ -74,19 +80,24 @@ export async function POST(request: NextRequest) {
       notionVersion: '2022-06-28',
     });
 
+    console.log('[Page Blocks API] Action:', action, 'blockType:', blockType, 'content:', content?.substring(0, 50));
+
     if (action === 'update' && blockId) {
-      // Update existing block
+      // Update existing block - need to pass block data directly
       const blockData = createBlockData(blockType || 'paragraph', content);
+      console.log('[Page Blocks API] Updating block:', blockId, 'with data:', JSON.stringify(blockData));
 
       await (notion as any).blocks.update({
         block_id: blockId,
         ...blockData,
       });
 
+      console.log('[Page Blocks API] Block updated successfully');
       return NextResponse.json({ success: true });
     } else if (action === 'create') {
       // Create new block at the end of the page
-      const blockData = createBlockData(blockType || 'paragraph', content);
+      const blockData = createBlockDataForCreate(blockType || 'paragraph', content);
+      console.log('[Page Blocks API] Creating block with data:', JSON.stringify(blockData));
 
       const response = await notion.blocks.children.append({
         block_id: pageId,
@@ -94,19 +105,23 @@ export async function POST(request: NextRequest) {
       });
 
       const newBlockId = response.results[0]?.id;
+      console.log('[Page Blocks API] Block created with ID:', newBlockId);
       return NextResponse.json({ success: true, blockId: newBlockId });
     } else if (action === 'delete' && blockId) {
       // Delete block
+      console.log('[Page Blocks API] Deleting block:', blockId);
       await (notion as any).blocks.delete({
         block_id: blockId,
       });
 
+      console.log('[Page Blocks API] Block deleted successfully');
       return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error: any) {
     console.error('[Page Blocks API] Error modifying block:', error);
+    console.error('[Page Blocks API] Error details:', error.body || error.message);
     return NextResponse.json(
       { error: error.message || 'Failed to modify block' },
       { status: 500 }
@@ -204,7 +219,7 @@ function isEditableBlockType(type: string): boolean {
   return editableTypes.includes(type);
 }
 
-// Helper: Create block data for Notion API
+// Helper: Create block data for Notion API (for updates - no type wrapper needed)
 function createBlockData(type: string, content: string): any {
   const richText = [
     {
@@ -234,5 +249,43 @@ function createBlockData(type: string, content: string): any {
       return { toggle: { rich_text: richText } };
     default:
       return { paragraph: { rich_text: richText } };
+  }
+}
+
+// Helper: Create block data for creation (needs object and type property)
+function createBlockDataForCreate(type: string, content: string): any {
+  const richText = [
+    {
+      type: 'text',
+      text: { content },
+    },
+  ];
+
+  const baseBlock = {
+    object: 'block',
+    type: type,
+  };
+
+  switch (type) {
+    case 'paragraph':
+      return { ...baseBlock, paragraph: { rich_text: richText } };
+    case 'heading_1':
+      return { ...baseBlock, heading_1: { rich_text: richText } };
+    case 'heading_2':
+      return { ...baseBlock, heading_2: { rich_text: richText } };
+    case 'heading_3':
+      return { ...baseBlock, heading_3: { rich_text: richText } };
+    case 'bulleted_list_item':
+      return { ...baseBlock, bulleted_list_item: { rich_text: richText } };
+    case 'numbered_list_item':
+      return { ...baseBlock, numbered_list_item: { rich_text: richText } };
+    case 'quote':
+      return { ...baseBlock, quote: { rich_text: richText } };
+    case 'callout':
+      return { ...baseBlock, callout: { rich_text: richText, icon: { emoji: '💡' } } };
+    case 'toggle':
+      return { ...baseBlock, toggle: { rich_text: richText } };
+    default:
+      return { ...baseBlock, type: 'paragraph', paragraph: { rich_text: richText } };
   }
 }

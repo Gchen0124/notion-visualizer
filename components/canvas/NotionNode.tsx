@@ -169,12 +169,12 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
               <h3
                 className={`font-semibold cursor-text ${
                   data.childrenVisible ? 'text-sm' : 'text-2xl'
-                } ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}
+                } ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}
               >
                 {data.label}
               </h3>
               {data.childrenVisible && (
-                <div className={`flex items-center space-x-1 ${data.showImage && imageUrl ? 'px-2 py-1 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}>
+                <div className={`flex items-center space-x-1 ${data.showImage && imageUrl ? 'px-2 py-1 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}>
                   {/* Color picker button */}
                   <button
                     ref={colorButtonRef}
@@ -389,7 +389,7 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
         {/* Footer with icons - only show when childrenVisible is false */}
         {!data.childrenVisible && (
           <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center px-4">
-            <div className={`flex items-center space-x-2 ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}>
+            <div className={`flex items-center space-x-2 ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}>
               {/* Color picker button */}
               <button
                 ref={colorButtonRef}
