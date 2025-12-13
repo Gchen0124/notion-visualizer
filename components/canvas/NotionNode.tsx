@@ -166,11 +166,15 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
               }`}
               onClick={() => setIsEditingTitle(true)}
             >
-              <h3 className={`font-semibold cursor-text ${
-                data.childrenVisible ? 'text-sm' : 'text-2xl'
-              }`}>{data.label}</h3>
+              <h3
+                className={`font-semibold cursor-text ${
+                  data.childrenVisible ? 'text-sm' : 'text-2xl'
+                } ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}
+              >
+                {data.label}
+              </h3>
               {data.childrenVisible && (
-                <div className="flex items-center space-x-1">
+                <div className={`flex items-center space-x-1 ${data.showImage && imageUrl ? 'px-2 py-1 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}>
                   {/* Color picker button */}
                   <button
                     ref={colorButtonRef}
@@ -384,57 +388,59 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
 
         {/* Footer with icons - only show when childrenVisible is false */}
         {!data.childrenVisible && (
-          <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center space-x-2 px-4">
-            {/* Color picker button */}
-            <button
-              ref={colorButtonRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowColorPicker(!showColorPicker);
-              }}
-              className="p-1.5 w-7 h-7 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
-              style={{ background: gradientStyle }}
-              title="Change colors"
-            />
-            {/* Image toggle button */}
-            {hasImage && data.onToggleImage && (
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center px-4">
+            <div className={`flex items-center space-x-2 ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-md bg-white/60 dark:bg-black/40 shadow-lg border border-white/30' : ''}`}>
+              {/* Color picker button */}
               <button
+                ref={colorButtonRef}
                 onClick={(e) => {
                   e.stopPropagation();
-                  data.onToggleImage();
+                  setShowColorPicker(!showColorPicker);
                 }}
-                className={`p-1.5 rounded-md transition-colors ${data.showImage ? 'bg-purple-500/50' : 'hover:bg-white/30'}`}
-                title={data.showImage ? 'Hide image background' : 'Show image background'}
-              >
-                🖼️
-              </button>
-            )}
-            {/* Settings icon */}
-            {data.onOpenPropertyEditor && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  data.onOpenPropertyEditor();
-                }}
-                className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
-                title="Edit properties"
-              >
-                ⚙️
-              </button>
-            )}
-            {/* Show sub-items icon */}
-            {data.hasChildren && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  data.onToggleSubItems && data.onToggleSubItems();
-                }}
-                className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
-                title="Show sub-items"
-              >
-                👁️‍🗨️
-              </button>
-            )}
+                className="p-1.5 w-7 h-7 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
+                style={{ background: gradientStyle }}
+                title="Change colors"
+              />
+              {/* Image toggle button */}
+              {hasImage && data.onToggleImage && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onToggleImage();
+                  }}
+                  className={`p-1.5 rounded-md transition-colors ${data.showImage ? 'bg-purple-500/50' : 'hover:bg-white/30'}`}
+                  title={data.showImage ? 'Hide image background' : 'Show image background'}
+                >
+                  🖼️
+                </button>
+              )}
+              {/* Settings icon */}
+              {data.onOpenPropertyEditor && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onOpenPropertyEditor();
+                  }}
+                  className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                  title="Edit properties"
+                >
+                  ⚙️
+                </button>
+              )}
+              {/* Show sub-items icon */}
+              {data.hasChildren && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onToggleSubItems && data.onToggleSubItems();
+                  }}
+                  className="p-1.5 hover:bg-white/30 rounded-md transition-colors"
+                  title="Show sub-items"
+                >
+                  👁️‍🗨️
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

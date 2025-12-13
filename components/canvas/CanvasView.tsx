@@ -1134,6 +1134,7 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
             properties={editingItem.properties}
             schema={schema}
             allItems={items}
+            pageUrl={editingItem.url}
             onUpdateProperty={(propName: string, value: any) => {
               updateItemProperty(editingItemId, propName, value);
             }}
