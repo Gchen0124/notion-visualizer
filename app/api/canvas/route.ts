@@ -193,12 +193,17 @@ function extractPropertyValue(property: any): any {
 function formatPropertiesForNotion(properties: any, schema?: any[]): any {
   const formatted: any = {};
 
+  console.log('[formatPropertiesForNotion] Schema:', schema?.map(s => `${s.name}:${s.type}`).join(', '));
+  console.log('[formatPropertiesForNotion] Properties to format:', Object.keys(properties));
+
   Object.entries(properties).forEach(([name, value]: [string, any]) => {
     if (value === null || value === undefined) return;
 
     // Find property type from schema if available
     const schemaProp = schema?.find((s) => s.name === name);
     const propType = schemaProp?.type;
+
+    console.log(`[formatPropertiesForNotion] Processing ${name}: type=${propType}, value=`, value);
 
     // Allow Parent item property even if not in schema (it's a relation property for sub-items)
     const isParentProperty = name === 'Parent item' || name === 'Parent';

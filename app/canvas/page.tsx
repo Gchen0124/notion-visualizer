@@ -150,16 +150,11 @@ export default function CanvasPage() {
 
   return (
     <div className="relative">
-      {/* Settings button */}
-      <button
-        onClick={() => setShowCredentials(true)}
-        className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 px-4 py-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 flex items-center space-x-2"
-      >
-        <span>⚙️</span>
-        <span className="text-sm">Settings</span>
-      </button>
-
-      <CanvasView apiKey={apiKey} dataSourceId={dataSourceId} />
+      <CanvasView
+        apiKey={apiKey}
+        dataSourceId={dataSourceId}
+        onShowSettings={() => setShowCredentials(true)}
+      />
     </div>
   );
 }

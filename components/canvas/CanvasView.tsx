@@ -25,6 +25,7 @@ const nodeTypes: any = {
 interface CanvasViewProps {
   apiKey: string;
   dataSourceId: string;
+  onShowSettings?: () => void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,7 +33,7 @@ type AppNode = Node<any, string>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AppEdge = Edge<any>;
 
-export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
+export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: CanvasViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -614,59 +615,75 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     }
   };
 
-  // Reorder sub-items
-  const reorderSubItem = async (parentId: string, subItemId: string, direction: 'up' | 'down') => {
+  // Reorder sub-items using parent's Sub-item array order
+  const reorderSubItem = useCallback(async (parentId: string, subItemId: string, direction: 'up' | 'down') => {
     console.log('[CanvasView] Reordering sub-item:', subItemId, 'direction:', direction);
 
-    // Get current sub-items
-    const titleProp = schema.find((s) => s.type === 'title')?.name;
-    const currentSubItems = items
-      .filter((i) => {
-        const parentIds = i.properties['Parent item'] || [];
-        return Array.isArray(parentIds) && parentIds.includes(parentId);
-      })
-      .sort((a, b) => {
-        // Sort by some order property if exists, otherwise by id
-        const orderA = a.properties.order || 0;
-        const orderB = b.properties.order || 0;
-        return orderA - orderB;
-      });
-
-    const currentIndex = currentSubItems.findIndex((item) => item.id === subItemId);
-    if (currentIndex === -1) return;
-
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (newIndex < 0 || newIndex >= currentSubItems.length) return;
-
-    // Swap items
-    const reorderedItems = [...currentSubItems];
-    [reorderedItems[currentIndex], reorderedItems[newIndex]] =
-      [reorderedItems[newIndex], reorderedItems[currentIndex]];
-
-    // Update order property for all sub-items
-    try {
-      for (let i = 0; i < reorderedItems.length; i++) {
-        await updateItemProperty(reorderedItems[i].id, 'order', i);
+    // Use setNodes with functional form to get current state
+    setNodes((currentNodes) => {
+      const parentNode = currentNodes.find((n) => n.id === parentId);
+      if (!parentNode) {
+        console.error('[CanvasView] Parent node not found:', parentId);
+        return currentNodes;
       }
 
-      // Update local state
-      setItems((items) =>
-        items.map((item) => {
-          const idx = reorderedItems.findIndex((ri) => ri.id === item.id);
-          if (idx !== -1) {
-            return { ...item, properties: { ...item.properties, order: idx } };
-          }
-          return item;
-        })
+      // Get current Sub-item array from node data
+      const currentSubItemIds = Array.isArray(parentNode.data.properties['Sub-item'])
+        ? [...parentNode.data.properties['Sub-item']]
+        : [];
+
+      console.log('[CanvasView] Current Sub-item order:', currentSubItemIds);
+
+      // Find the index of the sub-item being moved
+      const currentIndex = currentSubItemIds.indexOf(subItemId);
+      if (currentIndex === -1) {
+        console.error('[CanvasView] Sub-item not found in parent Sub-item array:', subItemId);
+        return currentNodes;
+      }
+
+      // Calculate new index
+      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (newIndex < 0 || newIndex >= currentSubItemIds.length) {
+        console.log('[CanvasView] Cannot move further:', direction);
+        return currentNodes;
+      }
+
+      // Swap positions in the array
+      const newSubItemIds = [...currentSubItemIds];
+      [newSubItemIds[currentIndex], newSubItemIds[newIndex]] =
+        [newSubItemIds[newIndex], newSubItemIds[currentIndex]];
+
+      console.log('[CanvasView] New Sub-item order:', newSubItemIds);
+
+      // Update Notion in background (don't await)
+      updateItemProperty(parentId, 'Sub-item', newSubItemIds)
+        .then(() => console.log('[CanvasView] Reorder saved to Notion'))
+        .catch((err) => console.error('[CanvasView] Failed to save reorder:', err));
+
+      // Update items state
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item.id === parentId
+            ? { ...item, properties: { ...item.properties, 'Sub-item': newSubItemIds } }
+            : item
+        )
       );
 
-      // Refresh the parent node
-      setTimeout(() => refreshNodeSubItems(parentId), 100);
-    } catch (error) {
-      console.error('Failed to reorder sub-items:', error);
-      alert(`Failed to reorder sub-items: ${error}`);
-    }
-  };
+      // Return updated nodes
+      return currentNodes.map((node) => {
+        if (node.id === parentId) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              properties: { ...node.data.properties, 'Sub-item': newSubItemIds },
+            },
+          };
+        }
+        return node;
+      });
+    });
+  }, [setNodes, setItems]);
 
   // Handle node drop for nesting
   const onConnect = useCallback(
@@ -942,6 +959,8 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
     console.log('[CanvasView] View deleted:', viewName);
   };
 
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
+
   console.log('[CanvasView] Total items:', items.length, 'Nodes on canvas:', nodes.length, 'Filtered items:', filteredItems.length);
 
   if (loading) {
@@ -954,68 +973,155 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
 
   return (
     <div className="h-screen relative">
-      {/* Compact Toolbar */}
-      <div className="absolute top-4 left-4 z-10 space-y-1.5">
-        <button
-          onClick={() => setShowSearch(!showSearch)}
-          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
-        >
-          🔍 Add Item
-        </button>
+      {/* Collapsible Side Panel Toolbar */}
+      <div
+        className={`absolute top-20 left-0 z-10 transition-all duration-300 ease-in-out ${
+          toolbarExpanded ? 'w-64' : 'w-12'
+        }`}
+      >
+        {/* Panel Container */}
+        <div className="bg-white/85 backdrop-blur-xl rounded-r-xl shadow-2xl border border-l-0 border-white/40 overflow-hidden">
+          {/* Toggle Button */}
+          <button
+            onClick={() => setToolbarExpanded(!toolbarExpanded)}
+            className="w-full p-3 flex items-center justify-center hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors border-b border-gray-200 dark:border-gray-700"
+            title={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
+          >
+            <span className={`transform transition-transform duration-300 ${toolbarExpanded ? 'rotate-180' : ''}`}>
+              ▶
+            </span>
+            {toolbarExpanded && <span className="ml-2 font-semibold text-sm">Tools</span>}
+          </button>
 
-        <button
-          onClick={saveCurrentView}
-          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
-        >
-          💾 Save View
-        </button>
+          {/* Tool Buttons */}
+          <div className="p-2 space-y-1">
+            {/* Add Item */}
+            <button
+              onClick={() => { setShowSearch(!showSearch); setToolbarExpanded(true); }}
+              className={`w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
+                showSearch ? 'bg-purple-100 dark:bg-purple-900/40' : ''
+              }`}
+              title="Add Item"
+            >
+              <span className="text-lg">🔍</span>
+              {toolbarExpanded && <span className="ml-3 text-sm font-medium">Add Item</span>}
+            </button>
 
-        <button
-          onClick={() => setShowLoadView(!showLoadView)}
-          className="px-3 py-1.5 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg hover:shadow-xl transition-all border border-white/20 text-sm"
-        >
-          📂 Load View ({savedViews.length})
-        </button>
+            {/* Save View */}
+            <button
+              onClick={saveCurrentView}
+              className="w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+              title="Save View"
+            >
+              <span className="text-lg">💾</span>
+              {toolbarExpanded && <span className="ml-3 text-sm font-medium">Save View</span>}
+            </button>
 
-        {/* Canvas Background Color Picker - Compact */}
-        <div className="bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-lg shadow-lg p-2 border border-white/20">
-          <h3 className="font-semibold mb-1.5 text-xs">Canvas BG</h3>
-          <div className="space-y-1.5">
-            <input
-              type="color"
-              value={canvasBgGradientStart}
-              onChange={(e) => {
-                setCanvasBgGradientStart(e.target.value);
-                localStorage.setItem('canvas_bg_gradient_start', e.target.value);
-              }}
-              className="w-full h-7 rounded cursor-pointer border border-gray-300"
-              title="Gradient Start"
-            />
-            <input
-              type="color"
-              value={canvasBgGradientEnd}
-              onChange={(e) => {
-                setCanvasBgGradientEnd(e.target.value);
-                localStorage.setItem('canvas_bg_gradient_end', e.target.value);
-              }}
-              className="w-full h-7 rounded cursor-pointer border border-gray-300"
-              title="Gradient End"
-            />
+            {/* Load View */}
+            <button
+              onClick={() => { setShowLoadView(!showLoadView); setToolbarExpanded(true); }}
+              className={`w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
+                showLoadView ? 'bg-purple-100 dark:bg-purple-900/40' : ''
+              }`}
+              title={`Load View (${savedViews.length})`}
+            >
+              <span className="text-lg">📂</span>
+              {toolbarExpanded && <span className="ml-3 text-sm font-medium">Load View ({savedViews.length})</span>}
+            </button>
+
+            {/* Divider */}
+            <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
+
+            {/* Canvas Background */}
+            <div className="p-2">
+              <div className="flex items-center mb-2">
+                <span className="text-lg">🎨</span>
+                {toolbarExpanded && <span className="ml-3 text-sm font-medium">Canvas BG</span>}
+              </div>
+              {toolbarExpanded && (
+                <div className="flex gap-2 mt-2">
+                  <div className="flex-1">
+                    <input
+                      type="color"
+                      value={canvasBgGradientStart}
+                      onChange={(e) => {
+                        setCanvasBgGradientStart(e.target.value);
+                        localStorage.setItem('canvas_bg_gradient_start', e.target.value);
+                      }}
+                      className="w-full h-8 rounded cursor-pointer border border-gray-300"
+                      title="Gradient Start"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      type="color"
+                      value={canvasBgGradientEnd}
+                      onChange={(e) => {
+                        setCanvasBgGradientEnd(e.target.value);
+                        localStorage.setItem('canvas_bg_gradient_end', e.target.value);
+                      }}
+                      className="w-full h-8 rounded cursor-pointer border border-gray-300"
+                      title="Gradient End"
+                    />
+                  </div>
+                </div>
+              )}
+              {!toolbarExpanded && (
+                <div className="flex flex-col gap-1 mt-1">
+                  <input
+                    type="color"
+                    value={canvasBgGradientStart}
+                    onChange={(e) => {
+                      setCanvasBgGradientStart(e.target.value);
+                      localStorage.setItem('canvas_bg_gradient_start', e.target.value);
+                    }}
+                    className="w-8 h-6 rounded cursor-pointer border border-gray-300"
+                    title="Gradient Start"
+                  />
+                  <input
+                    type="color"
+                    value={canvasBgGradientEnd}
+                    onChange={(e) => {
+                      setCanvasBgGradientEnd(e.target.value);
+                      localStorage.setItem('canvas_bg_gradient_end', e.target.value);
+                    }}
+                    className="w-8 h-6 rounded cursor-pointer border border-gray-300"
+                    title="Gradient End"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
+
+            {/* Settings - Database Connection */}
+            {onShowSettings && (
+              <button
+                onClick={onShowSettings}
+                className="w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+                title="Database Settings"
+              >
+                <span className="text-lg">⚙️</span>
+                {toolbarExpanded && <span className="ml-3 text-sm font-medium">Settings</span>}
+              </button>
+            )}
           </div>
         </div>
 
-        {showSearch && (
-          <div className="bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-80 border border-white/20">
+        {/* Search Dropdown - appears next to panel when expanded */}
+        {showSearch && toolbarExpanded && (
+          <div className="absolute left-full top-12 ml-2 bg-white/90 backdrop-blur-xl rounded-xl shadow-2xl p-4 w-80 border border-white/40">
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search or create new..."
-              className="w-full px-3 py-2 bg-white/50 dark:bg-black/30 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 mb-2"
+              className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 mb-2"
+              autoFocus
             />
 
             <div className="max-h-60 overflow-y-auto space-y-1">
-              {/* Show create button if there's a search term */}
               {searchTerm && (
                 <button
                   onClick={createNewItem}
@@ -1025,7 +1131,6 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
                 </button>
               )}
 
-              {/* Show filtered items */}
               {filteredItems.length === 0 && !searchTerm ? (
                 <div className="px-3 py-2 text-sm text-gray-500">
                   Start typing to search or create...
@@ -1053,8 +1158,9 @@ export default function CanvasView({ apiKey, dataSourceId }: CanvasViewProps) {
           </div>
         )}
 
-        {showLoadView && (
-          <div className="bg-white/90 dark:bg-black/50 backdrop-blur-md rounded-lg shadow-xl p-4 w-80 border border-white/20">
+        {/* Load View Dropdown */}
+        {showLoadView && toolbarExpanded && (
+          <div className="absolute left-full top-24 ml-2 bg-white/90 backdrop-blur-xl rounded-xl shadow-2xl p-4 w-80 border border-white/40">
             <h3 className="font-semibold mb-3 text-sm">Saved Views</h3>
             <div className="max-h-60 overflow-y-auto space-y-2">
               {savedViews.length === 0 ? (
