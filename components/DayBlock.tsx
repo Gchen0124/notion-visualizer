@@ -2,12 +2,55 @@
 
 import { useState } from 'react';
 
+type TaskStatus = 'Not started' | 'In progress' | 'Complete' | 'Missing' | null;
+
 interface DayBlockProps {
   date: string;
   dayOfYear: number;
   plan: string;
   reality: string;
+  taskStatus1: TaskStatus;
+  taskStatus2: TaskStatus;
+  taskStatus3: TaskStatus;
   onUpdate: (type: 'plan' | 'reality', content: string) => Promise<void>;
+}
+
+// Helper component for status indicator dot
+function StatusDot({ status }: { status: TaskStatus }) {
+  if (status === null) return null;
+
+  let colorClass = '';
+  let title = '';
+
+  switch (status) {
+    case 'Not started':
+      colorClass = 'bg-red-500';
+      title = 'Not started';
+      break;
+    case 'In progress':
+      colorClass = 'bg-yellow-500';
+      title = 'In progress';
+      break;
+    case 'Complete':
+      colorClass = 'bg-green-500';
+      title = 'Complete';
+      break;
+    case 'Missing':
+      // White circle with red edge
+      return (
+        <span
+          className="inline-block w-2 h-2 rounded-full bg-white border border-red-500"
+          title="Missing"
+        />
+      );
+  }
+
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${colorClass}`}
+      title={title}
+    />
+  );
 }
 
 export default function DayBlock({
@@ -15,6 +58,9 @@ export default function DayBlock({
   dayOfYear,
   plan,
   reality,
+  taskStatus1,
+  taskStatus2,
+  taskStatus3,
   onUpdate,
 }: DayBlockProps) {
   const [isEditing, setIsEditing] = useState<'plan' | 'reality' | null>(null);
@@ -65,6 +111,12 @@ export default function DayBlock({
         <div className="flex items-center gap-1">
           <span className="text-xs font-semibold text-gray-700">{month}</span>
           <span className="text-sm font-bold text-gray-900">{day}</span>
+          {/* Task Status Indicators */}
+          <div className="flex items-center gap-0.5 ml-1">
+            <StatusDot status={taskStatus1} />
+            <StatusDot status={taskStatus2} />
+            <StatusDot status={taskStatus3} />
+          </div>
         </div>
         <span className="text-xs text-gray-400">#{dayOfYear}</span>
       </div>

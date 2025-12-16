@@ -4,12 +4,17 @@ import { useState, useEffect } from 'react';
 import DayBlock from './DayBlock';
 import WeekBlock from './WeekBlock';
 
+type TaskStatus = 'Not started' | 'In progress' | 'Complete' | 'Missing' | null;
+
 interface DailyEntry {
   date: string;
   dayOfYear: number;
   plan: string;
   reality: string;
   pageId: string | null;
+  taskStatus1: TaskStatus;
+  taskStatus2: TaskStatus;
+  taskStatus3: TaskStatus;
 }
 
 interface WeekEntry {
@@ -113,6 +118,9 @@ export default function YearView() {
               plan: '',
               reality: '',
               pageId: null,
+              taskStatus1: null,
+              taskStatus2: null,
+              taskStatus3: null,
             });
           } else {
             // Day is outside current year (cross-year week)
@@ -122,6 +130,9 @@ export default function YearView() {
               plan: '',
               reality: '',
               pageId: null,
+              taskStatus1: null,
+              taskStatus2: null,
+              taskStatus3: null,
             });
           }
         }
@@ -390,6 +401,9 @@ export default function YearView() {
                         dayOfYear={day.dayOfYear}
                         plan={day.plan}
                         reality={day.reality}
+                        taskStatus1={day.taskStatus1}
+                        taskStatus2={day.taskStatus2}
+                        taskStatus3={day.taskStatus3}
                         onUpdate={(type, content) =>
                           handleDailyUpdate(day.date, type, content)
                         }

@@ -16,12 +16,17 @@ export const DATABASES = {
   CANVAS_VIEW: process.env.NOTION_CANVAS_VIEW_DB!,
 };
 
+export type TaskStatus = 'Not started' | 'In progress' | 'Complete' | 'Missing' | null;
+
 export interface DailyEntry {
   date: string; // YYYY-MM-DD
   dayOfYear: number; // 1-365
   plan: string;
   reality: string;
   pageId: string | null;
+  taskStatus1: TaskStatus;
+  taskStatus2: TaskStatus;
+  taskStatus3: TaskStatus;
 }
 
 export interface WeekEntry {
@@ -118,6 +123,11 @@ export async function getDailyRitualYear(year: number): Promise<DailyEntry[]> {
       const plan = getTextProperty(page, 'Daily Plan');
       const reality = getTextProperty(page, 'Daily Reality');
 
+      // Extract task status rollups
+      const taskStatus1 = getRollupStatus(page, 'Task Status - Rollup (1)');
+      const taskStatus2 = getRollupStatus(page, 'Task Status - Rollup (2)');
+      const taskStatus3 = getRollupStatus(page, 'Task Status - Rollup (3)');
+
       // Debug: Log pages with reality data
       if (reality) {
         console.log(`Date ${dateStr} has reality data: "${reality.substring(0, 50)}..."`);
@@ -129,6 +139,9 @@ export async function getDailyRitualYear(year: number): Promise<DailyEntry[]> {
         plan,
         reality,
         pageId: page?.id || null,
+        taskStatus1,
+        taskStatus2,
+        taskStatus3,
       });
     }
 
@@ -654,3 +667,31 @@ function formatDateForTitle(date: string): string {
 function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
+
+function getRollupStatus(page: any, propertyName: string): TaskStatus {
+  if (!page) return null;
+  const property = page.properties[propertyName];
+  if (!property) return null;
+
+  // Rollup properties have type 'rollup' and contain an array of results
+  if (property.type === 'rollup' && property.rollup) {
+    const rollupArray = property.rollup.array;
+    if (rollupArray && rollupArray.length > 0) {
+      // Get the first status result from the rollup
+      const firstResult = rollupArray[0];
+      if (firstResult?.type === 'status' && firstResult.status?.name) {
+        const statusName = firstResult.status.name;
+        // Map to our TaskStatus type
+        if (statusName === 'Not started') return 'Not started';
+        if (statusName === 'In progress') return 'In progress';
+        if (statusName === 'Complete' || statusName === 'Done') return 'Complete';
+        if (statusName === 'Missing') return 'Missing';
+      }
+    }
+  }
+
+  return null;
+}
+
+// Keep the old function name as alias for backward compatibility
+const getGoalStatus = getRollupStatus;
