@@ -12,17 +12,45 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const NOTION_TOKEN_URL = 'https://api.notion.com/v1/oauth/token';
 
+/**
+ * Get the external base URL for redirects
+ * On platforms like Render, the app runs on localhost internally but is accessed via a public URL
+ */
+function getExternalBaseUrl(request: NextRequest): string {
+  // Check for explicit redirect URI first (most reliable)
+  const configuredRedirectUri = process.env.NEXT_PUBLIC_NOTION_OAUTH_REDIRECT_URI;
+  if (configuredRedirectUri) {
+    // Extract base URL from the redirect URI
+    const url = new URL(configuredRedirectUri);
+    return `${url.protocol}//${url.host}`;
+  }
+
+  // Check x-forwarded headers (set by reverse proxies like Render)
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  // Fallback to request origin (works for local development)
+  return request.nextUrl.origin;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
+  // Get external base URL for all redirects
+  const baseUrl = getExternalBaseUrl(request);
+
   // Handle OAuth errors
   if (error) {
     console.error('[OAuth Callback] Error from Notion:', error);
     return NextResponse.redirect(
-      new URL(`/canvas?oauth_error=${encodeURIComponent(error)}`, request.url)
+      new URL(`/canvas?oauth_error=${encodeURIComponent(error)}`, baseUrl)
     );
   }
 
@@ -30,7 +58,7 @@ export async function GET(request: NextRequest) {
   if (!code) {
     console.error('[OAuth Callback] Missing authorization code');
     return NextResponse.redirect(
-      new URL('/canvas?oauth_error=missing_code', request.url)
+      new URL('/canvas?oauth_error=missing_code', baseUrl)
     );
   }
 
@@ -39,12 +67,12 @@ export async function GET(request: NextRequest) {
   const clientSecret = process.env.NOTION_OAUTH_CLIENT_SECRET;
   const redirectUri =
     process.env.NEXT_PUBLIC_NOTION_OAUTH_REDIRECT_URI ||
-    `${request.nextUrl.origin}/api/auth/notion/callback`;
+    `${baseUrl}/api/auth/notion/callback`;
 
   if (!clientId || !clientSecret) {
     console.error('[OAuth Callback] OAuth not configured - missing client ID or secret');
     return NextResponse.redirect(
-      new URL('/canvas?oauth_error=not_configured', request.url)
+      new URL('/canvas?oauth_error=not_configured', baseUrl)
     );
   }
 
@@ -70,9 +98,10 @@ export async function GET(request: NextRequest) {
       const errorData = await tokenResponse.text();
       console.error('[OAuth Callback] Token exchange failed:', errorData);
       console.error('[OAuth Callback] Using redirect_uri:', redirectUri);
+      console.error('[OAuth Callback] Using baseUrl:', baseUrl);
       console.error('[OAuth Callback] Client ID:', clientId);
       return NextResponse.redirect(
-        new URL(`/canvas?oauth_error=token_exchange_failed&details=${encodeURIComponent(errorData)}`, request.url)
+        new URL(`/canvas?oauth_error=token_exchange_failed&details=${encodeURIComponent(errorData)}`, baseUrl)
       );
     }
 
@@ -82,7 +111,7 @@ export async function GET(request: NextRequest) {
 
     // Build the redirect URL with tokens in the hash (not query params)
     // Hash fragments are not sent to the server in subsequent requests
-    const redirectUrl = new URL('/canvas', request.url);
+    const redirectUrl = new URL('/canvas', baseUrl);
 
     // Create a URL-safe JSON payload
     const payload = {
@@ -103,7 +132,7 @@ export async function GET(request: NextRequest) {
   } catch (err: any) {
     console.error('[OAuth Callback] Error during token exchange:', err.message);
     return NextResponse.redirect(
-      new URL(`/canvas?oauth_error=${encodeURIComponent(err.message)}`, request.url)
+      new URL(`/canvas?oauth_error=${encodeURIComponent(err.message)}`, baseUrl)
     );
   }
 }
