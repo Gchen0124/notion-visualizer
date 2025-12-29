@@ -3,13 +3,18 @@
  *
  * Handles validation and auto-creation of required properties
  * for user's existing Notion databases.
+ *
+ * Updated for Notion API version 2025-09-03 which introduced data_source concept.
+ * See: https://developers.notion.com/docs/upgrade-guide-2025-09-03
  */
 
 import { Client } from '@notionhq/client';
 import { REQUIRED_CANVAS_PROPERTIES } from './notion-config';
 
 export interface DatabaseInfo {
-  id: string;
+  id: string; // Primary ID (now the data_source_id for API 2025-09-03)
+  databaseId: string; // The parent database_id (for schema operations)
+  dataSourceId: string; // The data_source_id (for querying)
   title: string;
   properties: Record<string, PropertyInfo>;
 }
@@ -28,33 +33,53 @@ export interface ValidationResult {
 }
 
 /**
- * Fetch list of databases the user has shared with the integration
+ * Fetch list of databases/data sources the user has shared with the integration
+ *
+ * Notion API 2025-09-03 changes:
+ * - Search filter now uses "data_source" instead of "database"
+ * - Results include data_source objects with schema information
  */
 export async function listUserDatabases(apiKey: string): Promise<DatabaseInfo[]> {
   const notion = new Client({ auth: apiKey });
 
   try {
-    // Use type assertion to work around Notion SDK type issue with 'database' filter
+    // Use the new "data_source" filter value (API 2025-09-03)
     const response = await notion.search({
       filter: {
         property: 'object',
-        value: 'database' as any,
+        value: 'data_source',
       },
       page_size: 100,
     });
 
+    console.log(`[listUserDatabases] Found ${response.results.length} data sources`);
+
     return response.results
-      .filter((result: any) => result.object === 'database')
-      .map((db: any) => ({
-        id: db.id,
-        title: db.title?.[0]?.plain_text || 'Untitled',
-        properties: Object.fromEntries(
-          Object.entries(db.properties || {}).map(([name, prop]: [string, any]) => [
-            name,
-            { id: prop.id, name, type: prop.type },
-          ])
-        ),
-      }));
+      .filter((result: any) => result.object === 'data_source')
+      .map((ds: any) => {
+        // Extract both IDs correctly per Notion API 2025-09-03
+        // data_source.id = data_source_id (used for dataSources.query())
+        // data_source.parent.database_id = database_id (used for databases.update() for schema)
+        const dataSourceId = ds.id;
+        const databaseId = ds.parent?.database_id || ds.id;
+
+        console.log(`[listUserDatabases] Data source: ${ds.title?.[0]?.plain_text || 'Untitled'}`);
+        console.log(`  - dataSourceId: ${dataSourceId}`);
+        console.log(`  - databaseId: ${databaseId}`);
+
+        return {
+          id: dataSourceId, // Primary ID is now the data_source_id
+          databaseId, // Parent database_id for schema operations
+          dataSourceId, // Explicit data_source_id for querying
+          title: ds.title?.[0]?.plain_text || 'Untitled',
+          properties: Object.fromEntries(
+            Object.entries(ds.properties || {}).map(([name, prop]: [string, any]) => [
+              name,
+              { id: prop.id, name, type: prop.type },
+            ])
+          ),
+        };
+      });
   } catch (error: any) {
     console.error('[listUserDatabases] Error:', error.message);
     throw error;
@@ -63,21 +88,29 @@ export async function listUserDatabases(apiKey: string): Promise<DatabaseInfo[]>
 
 /**
  * Get detailed info about a specific database
+ *
+ * For Notion API 2025-09-03:
+ * - Use database_id for databases.retrieve() to get schema
+ * - The dataSourceId is for querying items
  */
 export async function getDatabaseInfo(
   apiKey: string,
-  databaseId: string
+  databaseId: string,
+  dataSourceId?: string
 ): Promise<DatabaseInfo> {
   const notion = new Client({ auth: apiKey });
 
   try {
+    console.log(`[getDatabaseInfo] Retrieving database: ${databaseId}`);
     const db: any = await notion.databases.retrieve({ database_id: databaseId });
 
     return {
-      id: db.id,
+      id: dataSourceId || databaseId, // Use dataSourceId as primary if provided
+      databaseId: db.id,
+      dataSourceId: dataSourceId || db.id, // Use dataSourceId for querying
       title: db.title?.[0]?.plain_text || 'Untitled',
       properties: Object.fromEntries(
-        Object.entries(db.properties).map(([name, prop]: [string, any]) => [
+        Object.entries(db.properties || {}).map(([name, prop]: [string, any]) => [
           name,
           { id: prop.id, name, type: prop.type },
         ])
@@ -178,13 +211,14 @@ export async function createCanvasViewDatabase(
 
     if (!parentId) {
       // Search for any page the user has shared
+      // Note: filter removed as Notion API changed - manually filter results
       const searchResponse = await notion.search({
-        filter: { property: 'object', value: 'page' },
-        page_size: 1,
+        page_size: 20,
       });
 
-      if (searchResponse.results.length > 0) {
-        parentId = searchResponse.results[0].id;
+      const pages = searchResponse.results.filter((r: any) => r.object === 'page');
+      if (pages.length > 0) {
+        parentId = pages[0].id;
       } else {
         // Try to use the task calendar's parent
         const taskDb: any = await notion.databases.retrieve({
@@ -242,33 +276,42 @@ export async function createCanvasViewDatabase(
 
 /**
  * Full setup: validate database and add missing properties
+ *
+ * For Notion API 2025-09-03:
+ * - databaseId is used for databases.update() to add properties
+ * - dataSourceId is used for querying and is returned for storage
  */
 export async function setupDatabase(
   apiKey: string,
-  taskCalendarDbId: string
+  databaseId: string,
+  dataSourceId?: string
 ): Promise<{
   success: boolean;
   validation?: ValidationResult;
   canvasViewDbId?: string;
+  databaseId?: string;
+  dataSourceId?: string;
   error?: string;
 }> {
   try {
-    // 1. Get database info
-    const dbInfo = await getDatabaseInfo(apiKey, taskCalendarDbId);
+    console.log(`[setupDatabase] Setting up database: ${databaseId}, dataSourceId: ${dataSourceId}`);
+
+    // 1. Get database info using the database_id
+    const dbInfo = await getDatabaseInfo(apiKey, databaseId, dataSourceId);
     console.log(`[setupDatabase] Validating database: ${dbInfo.title}`);
 
     // 2. Validate schema
     const validation = validateDatabaseSchema(dbInfo);
     console.log(`[setupDatabase] Validation result:`, validation);
 
-    // 3. Add missing properties if any
+    // 3. Add missing properties if any (uses database_id for update)
     if (validation.missingProperties.length > 0) {
       console.log(
         `[setupDatabase] Adding missing properties: ${validation.missingProperties.join(', ')}`
       );
       const addResult = await addMissingProperties(
         apiKey,
-        taskCalendarDbId,
+        databaseId, // Use databaseId for schema updates
         validation.missingProperties
       );
 
@@ -288,7 +331,7 @@ export async function setupDatabase(
 
     if (!hasCanvasViewRelation) {
       console.log('[setupDatabase] Canvas View relation not found, creating database...');
-      const createResult = await createCanvasViewDatabase(apiKey, taskCalendarDbId);
+      const createResult = await createCanvasViewDatabase(apiKey, databaseId);
 
       if (createResult.success && createResult.databaseId) {
         canvasViewDbId = createResult.databaseId;
@@ -309,6 +352,8 @@ export async function setupDatabase(
         missingProperties: [],
       },
       canvasViewDbId,
+      databaseId: dbInfo.databaseId,
+      dataSourceId: dbInfo.dataSourceId,
     };
   } catch (error: any) {
     console.error('[setupDatabase] Error:', error.message);

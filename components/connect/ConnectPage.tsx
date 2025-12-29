@@ -128,13 +128,21 @@ export default function ConnectPage({ onConnected, existingConfig }: ConnectPage
     setSetupStatus('Setting up database...');
 
     try {
-      // Set up the database
+      console.log('[ConnectPage] Selected database:', {
+        id: database.id,
+        databaseId: database.databaseId,
+        dataSourceId: database.dataSourceId,
+        title: database.title,
+      });
+
+      // Set up the database - pass both IDs for Notion API 2025-09-03
       const setupResponse = await fetch('/api/databases/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apiKey: pendingApiKey,
-          databaseId: database.id,
+          databaseId: database.databaseId, // For schema operations
+          dataSourceId: database.dataSourceId, // For querying
           autoSetup: true,
         }),
       });
@@ -157,13 +165,16 @@ export default function ConnectPage({ onConnected, existingConfig }: ConnectPage
           pendingOAuthData.workspace_id,
           pendingOAuthData.workspace_name,
           pendingOAuthData.bot_id,
-          database.id,
+          database.databaseId, // Store databaseId for schema
           database.title
         );
       } else {
-        config = createManualConfig(pendingApiKey, database.id);
+        config = createManualConfig(pendingApiKey, database.databaseId);
         config.databases.taskCalendarDbName = database.title;
       }
+
+      // Store the dataSourceId for querying (Notion API 2025-09-03)
+      config.databases.taskCalendarDataSourceId = database.dataSourceId;
 
       // Add canvas view DB if created
       if (setupResult.canvasViewDbId) {

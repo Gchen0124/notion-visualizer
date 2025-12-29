@@ -36,8 +36,10 @@ export interface ManualConfig {
 }
 
 // Database configuration (shared by both methods)
+// For Notion API 2025-09-03, we need both databaseId and dataSourceId
 export interface DatabaseConfig {
-  taskCalendarDbId: string;
+  taskCalendarDbId: string; // The database_id (for schema operations)
+  taskCalendarDataSourceId?: string; // The data_source_id (for querying) - NEW
   taskCalendarDbName?: string;
   canvasViewDbId?: string;
   canvasViewDbName?: string;
@@ -73,16 +75,29 @@ export function getEffectiveApiKey(config: NotionLocalConfig): string {
 }
 
 /**
- * Get the task calendar database ID
+ * Get the task calendar database ID (for schema operations)
  */
 export function getTaskCalendarDbId(config: NotionLocalConfig): string {
   return config.databases.taskCalendarDbId;
 }
 
 /**
+ * Get the task calendar data source ID (for querying)
+ * Falls back to taskCalendarDbId for backward compatibility
+ */
+export function getTaskCalendarDataSourceId(config: NotionLocalConfig): string {
+  return config.databases.taskCalendarDataSourceId || config.databases.taskCalendarDbId;
+}
+
+/**
  * Save configuration to localStorage
  */
 export function saveConfig(config: NotionLocalConfig): void {
+  // Guard against server-side rendering
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   config.lastUsedAt = Date.now();
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 
@@ -96,6 +111,11 @@ export function saveConfig(config: NotionLocalConfig): void {
  * Load configuration from localStorage
  */
 export function loadConfig(): NotionLocalConfig | null {
+  // Guard against server-side rendering
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
   // Try loading new format first
   const saved = localStorage.getItem(CONFIG_KEY);
   if (saved) {
@@ -142,6 +162,11 @@ export function loadConfig(): NotionLocalConfig | null {
  * Clear all configuration (disconnect)
  */
 export function clearConfig(): void {
+  // Guard against server-side rendering
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   localStorage.removeItem(CONFIG_KEY);
   localStorage.removeItem(LEGACY_API_KEY);
   localStorage.removeItem(LEGACY_DATA_SOURCE_ID);
@@ -161,6 +186,14 @@ export function createManualConfig(
   apiKey: string,
   taskCalendarDbId: string
 ): NotionLocalConfig {
+  // Get preferences from localStorage (with SSR guard)
+  const canvasBgGradientStart = typeof window !== 'undefined'
+    ? localStorage.getItem('canvas_bg_gradient_start') || '#fff25c'
+    : '#fff25c';
+  const canvasBgGradientEnd = typeof window !== 'undefined'
+    ? localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa'
+    : '#ffc7fa';
+
   return {
     connection: {
       method: 'manual',
@@ -170,8 +203,8 @@ export function createManualConfig(
       taskCalendarDbId,
     },
     preferences: {
-      canvasBgGradientStart: localStorage.getItem('canvas_bg_gradient_start') || '#fff25c',
-      canvasBgGradientEnd: localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa',
+      canvasBgGradientStart,
+      canvasBgGradientEnd,
     },
     connectedAt: Date.now(),
     lastUsedAt: Date.now(),
@@ -190,6 +223,14 @@ export function createOAuthConfig(
   taskCalendarDbId: string,
   taskCalendarDbName?: string
 ): NotionLocalConfig {
+  // Get preferences from localStorage (with SSR guard)
+  const canvasBgGradientStart = typeof window !== 'undefined'
+    ? localStorage.getItem('canvas_bg_gradient_start') || '#fff25c'
+    : '#fff25c';
+  const canvasBgGradientEnd = typeof window !== 'undefined'
+    ? localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa'
+    : '#ffc7fa';
+
   return {
     connection: {
       method: 'oauth',
@@ -204,8 +245,8 @@ export function createOAuthConfig(
       taskCalendarDbName,
     },
     preferences: {
-      canvasBgGradientStart: localStorage.getItem('canvas_bg_gradient_start') || '#fff25c',
-      canvasBgGradientEnd: localStorage.getItem('canvas_bg_gradient_end') || '#ffc7fa',
+      canvasBgGradientStart,
+      canvasBgGradientEnd,
     },
     connectedAt: Date.now(),
     lastUsedAt: Date.now(),

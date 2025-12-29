@@ -8,7 +8,7 @@ import {
   loadConfig,
   clearConfig,
   getEffectiveApiKey,
-  getTaskCalendarDbId,
+  getTaskCalendarDataSourceId,
   getConnectionMethodName,
   NotionLocalConfig,
 } from '@/lib/notion-config';
@@ -20,9 +20,17 @@ export default function CanvasPage() {
 
   // Load config on mount
   useEffect(() => {
-    const savedConfig = loadConfig();
-    setConfig(savedConfig);
-    setIsLoading(false);
+    // Ensure we're in the browser before accessing localStorage
+    if (typeof window === 'undefined') return;
+
+    try {
+      const savedConfig = loadConfig();
+      setConfig(savedConfig);
+    } catch (error) {
+      console.error('Error loading config:', error);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   // Handle successful connection
@@ -142,7 +150,7 @@ export default function CanvasPage() {
 
   // Connected - show canvas
   const apiKey = getEffectiveApiKey(config);
-  const dataSourceId = getTaskCalendarDbId(config);
+  const dataSourceId = getTaskCalendarDataSourceId(config);
 
   return (
     <div className="relative">

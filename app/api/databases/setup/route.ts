@@ -3,11 +3,15 @@ import { setupDatabase, getDatabaseInfo, validateDatabaseSchema } from '@/lib/da
 
 /**
  * Setup/validate a database for use with the canvas
+ *
+ * For Notion API 2025-09-03:
+ * - databaseId: The parent database_id (for schema operations)
+ * - dataSourceId: The data_source_id (for querying items)
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { apiKey, databaseId, autoSetup = true } = body;
+    const { apiKey, databaseId, dataSourceId, autoSetup = true } = body;
 
     if (!apiKey) {
       return NextResponse.json(
@@ -23,13 +27,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`[API /databases/setup] databaseId: ${databaseId}, dataSourceId: ${dataSourceId}`);
+
     if (autoSetup) {
       // Full setup: validate and add missing properties
-      const result = await setupDatabase(apiKey, databaseId);
+      const result = await setupDatabase(apiKey, databaseId, dataSourceId);
       return NextResponse.json(result);
     } else {
       // Just validate, don't modify
-      const dbInfo = await getDatabaseInfo(apiKey, databaseId);
+      const dbInfo = await getDatabaseInfo(apiKey, databaseId, dataSourceId);
       const validation = validateDatabaseSchema(dbInfo);
 
       return NextResponse.json({
