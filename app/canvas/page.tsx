@@ -22,10 +22,23 @@ export default function CanvasPage() {
   const [mode, setMode] = useState<AppMode>('loading');
   const [showBanner, setShowBanner] = useState(true);
 
-  // Load config on mount
+  // Load config on mount and check for OAuth callbacks
   useEffect(() => {
     // Ensure we're in the browser before accessing localStorage
     if (typeof window === 'undefined') return;
+
+    // Check for OAuth callback - if present, automatically switch to connect mode
+    // so that ConnectPage can process the callback
+    const hash = window.location.hash;
+    const searchParams = new URLSearchParams(window.location.search);
+    const hasOAuthSuccess = hash.includes('oauth_success=');
+    const hasOAuthError = searchParams.get('oauth_error');
+
+    if (hasOAuthSuccess || hasOAuthError) {
+      console.log('[CanvasPage] OAuth callback detected, switching to connect mode');
+      setMode('connect');
+      return; // Don't check config yet, let ConnectPage handle the callback
+    }
 
     try {
       const savedConfig = loadConfig();
