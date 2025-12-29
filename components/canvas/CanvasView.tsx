@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -9,13 +9,17 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
   Connection,
   Edge,
   Node,
+  Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import NotionNode from './NotionNode';
 import PropertyEditorModal from './PropertyEditorModal';
+import CanvasViewSetupGuide from './CanvasViewSetupGuide';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: any = {
@@ -25,7 +29,23 @@ const nodeTypes: any = {
 interface CanvasViewProps {
   apiKey: string;
   dataSourceId: string;
+  canvasViewDbId?: string;   // Canvas View database ID for saving/loading views
+  taskCalendarDbId?: string; // Task Calendar database ID for creating Canvas View DB
   onShowSettings?: () => void;
+  defaultViewId?: string;  // Auto-load this view on mount (for demo mode)
+  isDemoMode?: boolean;    // Show demo-specific UI hints
+}
+
+// Interface for saved view with optional viewport
+interface SavedView {
+  id?: string;
+  name: string;
+  itemIds: string[];
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,7 +53,9 @@ type AppNode = Node<any, string>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AppEdge = Edge<any>;
 
-export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: CanvasViewProps) {
+function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasViewDbId, taskCalendarDbId, onShowSettings, defaultViewId, isDemoMode = false }: CanvasViewProps) {
+  // Use ReactFlow hook to access viewport (requires ReactFlowProvider wrapper)
+  const reactFlowInstance = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -52,15 +74,40 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [showSaveView, setShowSaveView] = useState(false);
   const [showLoadView, setShowLoadView] = useState(false);
-  const [savedViews, setSavedViews] = useState<{id?: string, name: string, itemIds: string[]}[]>([]);
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [viewsSource, setViewsSource] = useState<'notion' | 'local'>('local');
+  const [hasLoadedInitialView, setHasLoadedInitialView] = useState(false);
+  const [hasRestoredViewport, setHasRestoredViewport] = useState(false);
+
+  // Delete confirmation modal state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [nodesToDelete, setNodesToDelete] = useState<AppNode[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Canvas View setup guide state
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
+  const [hasSeenSetupGuide, setHasSeenSetupGuide] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('hasSeenCanvasViewSetupGuide') === 'true';
+    }
+    return false;
+  });
+  const [pendingSaveAction, setPendingSaveAction] = useState(false);
+
+  // Canvas View database ID (can be updated if created on first save)
+  const [canvasViewDbId, setCanvasViewDbId] = useState<string | undefined>(initialCanvasViewDbId);
+  const [isCreatingCanvasViewDb, setIsCreatingCanvasViewDb] = useState(false);
 
   // Load saved views - try Notion first, fallback to localStorage
   useEffect(() => {
     async function loadViews() {
       try {
-        // Try fetching from Notion first
-        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}`);
+        // Try fetching from Notion first (pass canvasViewDb if available)
+        const params = new URLSearchParams({ apiKey });
+        if (canvasViewDbId) {
+          params.append('canvasViewDb', canvasViewDbId);
+        }
+        const response = await fetch(`/api/canvas-views?${params.toString()}`);
         const result = await response.json();
 
         if (result.success && result.views && result.views.length > 0) {
@@ -85,7 +132,7 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     }
 
     loadViews();
-  }, [apiKey, dataSourceId]);
+  }, [apiKey, dataSourceId, canvasViewDbId]);
 
   // Fetch database items
   useEffect(() => {
@@ -124,6 +171,120 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
 
     fetchData();
   }, [apiKey, dataSourceId]);
+
+  // Auto-load the "welcome tour" view when in demo mode (after views are fetched)
+  // This needs to be a ref-based approach to avoid stale closures
+  const demoModeInitRef = useRef(false);
+
+  useEffect(() => {
+    // In demo mode, wait for savedViews to load, then find and load the welcome tour view
+    if (isDemoMode && savedViews.length > 0 && items.length > 0 && !demoModeInitRef.current && !loading) {
+      // Look for a view that matches "welcome" - case insensitive
+      const welcomeView = savedViews.find(v =>
+        v.name.toLowerCase().includes('welcome') ||
+        v.name.toLowerCase().includes('tour') ||
+        v.name.toLowerCase().includes('tutorial')
+      );
+
+      if (welcomeView && welcomeView.id) {
+        console.log('[CanvasView] Demo mode: Found welcome view:', welcomeView.name);
+        demoModeInitRef.current = true;
+        setHasLoadedInitialView(true);
+
+        // Load the welcome view from Notion
+        (async () => {
+          try {
+            console.log(`[CanvasView] Demo mode: Loading view "${welcomeView.name}" from Notion...`);
+            const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&viewId=${encodeURIComponent(welcomeView.id!)}`);
+            const result = await response.json();
+
+            if (result.success && result.view && result.view.items.length > 0) {
+              const viewData = result.view;
+              console.log(`[CanvasView] Demo mode: Loaded ${viewData.items.length} items from welcome view`);
+
+              // Build nodes from the view items
+              const newNodes: AppNode[] = viewData.items.map((notionItem: any, index: number) => {
+                const titleProp = schema.find((s: any) => s.type === 'title')?.name ||
+                                  Object.keys(notionItem.properties).find((key: string) =>
+                                    key.toLowerCase().includes('title') || key.toLowerCase().includes('name') || key.toLowerCase().includes('plan')
+                                  );
+                const title = notionItem.properties[titleProp || Object.keys(notionItem.properties)[0]] || notionItem.title || 'Untitled';
+
+                const subItemIds = Array.isArray(notionItem.properties['Sub-item']) ? notionItem.properties['Sub-item'] : [];
+                const hasChildren = subItemIds.length > 0;
+
+                // Use saved canvas position from view data
+                const savedX = notionItem.canvas_x ?? notionItem.properties?.canvas_x;
+                const savedY = notionItem.canvas_y ?? notionItem.properties?.canvas_y;
+                const isValidPosition = (
+                  savedX !== null && savedX !== undefined &&
+                  savedY !== null && savedY !== undefined &&
+                  !isNaN(parseFloat(String(savedX))) && !isNaN(parseFloat(String(savedY)))
+                );
+
+                const position = isValidPosition
+                  ? { x: parseFloat(String(savedX)), y: parseFloat(String(savedY)) }
+                  : { x: 100 + (index % 4) * 300, y: 100 + Math.floor(index / 4) * 250 };
+
+                const gradientStart = notionItem.canvas_gradient_start ?? notionItem.properties?.canvas_gradient_start;
+                const gradientEnd = notionItem.canvas_gradient_end ?? notionItem.properties?.canvas_gradient_end;
+                const gradientColors = (gradientStart && gradientEnd)
+                  ? { start: gradientStart, end: gradientEnd }
+                  : { start: '#ffffff', end: '#ededed' };
+
+                const nodeHeight = Math.max(180, 100 + subItemIds.length * 45);
+
+                // Check if item has Canvas_Visual image - auto-show image if it exists
+                const canvasVisual = notionItem.properties?.['Canvas_Visual'];
+                const hasVisualImage = !!(Array.isArray(canvasVisual) && canvasVisual.length > 0 && canvasVisual[0]?.url);
+
+                return {
+                  id: notionItem.id,
+                  type: 'notionNode',
+                  position,
+                  style: { width: 250, height: nodeHeight },
+                  data: {
+                    label: title,
+                    properties: notionItem.properties,
+                    color: notionItem.canvas_color ?? notionItem.properties?.canvas_color ?? '#ffffff',
+                    gradientColors,
+                    visibleProperties: [],
+                    hasChildren,
+                    childrenVisible: !hasVisualImage, // Hide children if showing image
+                    showImage: hasVisualImage, // Auto-show image if available
+                    titleProp,
+                    allItems: items,
+                    _needsCallbackPatch: true,
+                  },
+                } as AppNode;
+              });
+
+              setNodes(newNodes);
+              console.log('[CanvasView] Demo mode: Finished loading welcome view with', newNodes.length, 'items');
+
+              // Restore viewport if available from the view
+              if (viewData.viewport) {
+                setHasRestoredViewport(true);
+                // Wait a bit for nodes to render before setting viewport
+                setTimeout(() => {
+                  console.log('[CanvasView] Demo mode: Restoring viewport:', viewData.viewport);
+                  reactFlowInstance.setViewport(viewData.viewport);
+                }, 150);
+              }
+            } else {
+              console.warn('[CanvasView] Demo mode: Welcome view is empty or failed to load');
+            }
+          } catch (error) {
+            console.error('[CanvasView] Demo mode: Failed to load welcome view:', error);
+          }
+        })();
+      } else {
+        console.log('[CanvasView] Demo mode: No welcome view found, canvas will be empty');
+        demoModeInitRef.current = true;
+        setHasLoadedInitialView(true);
+      }
+    }
+  }, [isDemoMode, savedViews, items, schema, loading, setNodes, apiKey, reactFlowInstance]);
 
   // Toggle sub-items visibility within the block
   const toggleSubItems = useCallback(
@@ -267,6 +428,10 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
       // Calculate height based on number of sub-items
       const nodeHeight = calculateNodeHeight(subItemIds.length);
 
+      // Check if item has Canvas_Visual image - auto-show image if it exists
+      const canvasVisual = item.properties['Canvas_Visual'];
+      const hasVisualImage = !!(Array.isArray(canvasVisual) && canvasVisual.length > 0 && canvasVisual[0]?.url);
+
       const newNode: AppNode = {
         id: item.id,
         type: 'notionNode',
@@ -279,7 +444,8 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
           gradientColors,
           visibleProperties: [], // Hide properties on node
           hasChildren,
-          childrenVisible,
+          childrenVisible: hasVisualImage ? false : childrenVisible, // Hide children if showing image
+          showImage: hasVisualImage, // Auto-show image if available
           titleProp,
           allItems: items,
           onUpdateTitle: (newTitle: string) => {
@@ -685,6 +851,77 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     });
   }, [setNodes, setItems]);
 
+  // Patch callbacks for demo mode nodes (separate effect to avoid stale closures)
+  // This effect runs after all callback functions are defined
+  useEffect(() => {
+    if (!isDemoMode) return;
+
+    setNodes((nds) => {
+      const needsPatch = nds.some((n) => n.data._needsCallbackPatch);
+      if (!needsPatch) return nds;
+
+      return nds.map((node) => {
+        if (!node.data._needsCallbackPatch) return node;
+
+        const item = items.find((i) => i.id === node.id);
+        if (!item) return node;
+
+        const titleProp = node.data.titleProp;
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            _needsCallbackPatch: false,
+            onUpdateTitle: (newTitle: string) => {
+              updateItemProperty(item.id, titleProp || 'Task Plan', newTitle);
+            },
+            onUpdateProperty: (propName: string, value: any) => {
+              updateItemProperty(item.id, propName, value);
+            },
+            onUpdateColor: (color: string) => {
+              updateItemProperty(item.id, 'canvas_color', color);
+              setNodes((nds) =>
+                nds.map((n) =>
+                  n.id === item.id
+                    ? { ...n, data: { ...n.data, color } }
+                    : n
+                )
+              );
+            },
+            onUpdateGradient: (start: string, end: string) => {
+              updateItemProperty(item.id, 'canvas_gradient_start', start);
+              updateItemProperty(item.id, 'canvas_gradient_end', end);
+              setNodes((nds) =>
+                nds.map((n) =>
+                  n.id === item.id
+                    ? { ...n, data: { ...n.data, gradientColors: { start, end } } }
+                    : n
+                )
+              );
+            },
+            onToggleSubItems: () => toggleSubItems(item.id),
+            onToggleImage: () => toggleImage(item.id),
+            onOpenPropertyEditor: () => setEditingItemId(item.id),
+            onAddSubItem: async () => {
+              const subItemTitle = prompt('Enter sub-item title:');
+              if (subItemTitle) {
+                await createSubItem(item.id, subItemTitle);
+              }
+            },
+            onDeleteSubItem: async (subItemId: string) => {
+              await deleteSubItem(subItemId, item.id);
+            },
+            onReorderSubItems: async (subItemId: string, direction: 'up' | 'down') => {
+              await reorderSubItem(item.id, subItemId, direction);
+            },
+          },
+        };
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode, items, setNodes, toggleSubItems, toggleImage]);
+
   // Handle node drop for nesting
   const onConnect = useCallback(
     async (connection: Connection) => {
@@ -777,6 +1014,94 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     [apiKey, dataSourceId, edges, setNodes, schema]
   );
 
+  // Handle node deletion - show confirmation dialog instead of immediate delete
+  const onNodesDelete = useCallback(
+    (nodesToBeDeleted: AppNode[]) => {
+      if (nodesToBeDeleted.length === 0) return;
+
+      // Show confirmation dialog
+      setNodesToDelete(nodesToBeDeleted);
+      setShowDeleteConfirm(true);
+    },
+    []
+  );
+
+  // Delete from canvas only (hide the nodes)
+  const handleDeleteFromCanvas = useCallback(() => {
+    if (nodesToDelete.length === 0) return;
+
+    // Add to hidden nodes - this removes them from the canvas view
+    setHiddenNodes((prev) => {
+      const newHidden = new Set(prev);
+      nodesToDelete.forEach((node) => newHidden.add(node.id));
+      return newHidden;
+    });
+
+    // Remove edges connected to deleted nodes
+    setEdges((eds) =>
+      eds.filter(
+        (edge) =>
+          !nodesToDelete.some(
+            (node) => node.id === edge.source || node.id === edge.target
+          )
+      )
+    );
+
+    // Close dialog
+    setShowDeleteConfirm(false);
+    setNodesToDelete([]);
+  }, [nodesToDelete, setEdges]);
+
+  // Delete from canvas AND Notion database
+  const handleDeleteFromNotion = useCallback(async () => {
+    if (nodesToDelete.length === 0) return;
+
+    setIsDeleting(true);
+
+    try {
+      // Delete (archive) each item in Notion
+      for (const node of nodesToDelete) {
+        try {
+          await fetch('/api/canvas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiKey,
+              dataSourceId,
+              action: 'delete',
+              itemId: node.id,
+            }),
+          });
+          console.log(`[CanvasView] Deleted item ${node.id} from Notion`);
+        } catch (error) {
+          console.error(`Failed to delete item ${node.id}:`, error);
+        }
+      }
+
+      // Remove from nodes
+      setNodes((nds) => nds.filter((n) => !nodesToDelete.some((del) => del.id === n.id)));
+
+      // Remove from items
+      setItems((itms) => itms.filter((i) => !nodesToDelete.some((del) => del.id === i.id)));
+
+      // Remove connected edges
+      setEdges((eds) =>
+        eds.filter(
+          (edge) =>
+            !nodesToDelete.some(
+              (node) => node.id === edge.source || node.id === edge.target
+            )
+        )
+      );
+    } catch (error) {
+      console.error('Failed to delete from Notion:', error);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      setNodesToDelete([]);
+    }
+  }, [nodesToDelete, apiKey, dataSourceId, setNodes, setEdges]);
+
   const filteredItems = items.filter((item) => {
     // Filter out items already on canvas
     const isOnCanvas = nodes.some((node) => node.id === item.id);
@@ -793,12 +1118,100 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     return title.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  // Save current view - save to Notion first, then localStorage
-  const saveCurrentView = async () => {
+  // Handle setup guide dismissal and continue saving
+  const handleSetupGuideClose = () => {
+    setShowSetupGuide(false);
+    setHasSeenSetupGuide(true);
+    localStorage.setItem('hasSeenCanvasViewSetupGuide', 'true');
+  };
+
+  const handleContinueSaveAnyway = () => {
+    handleSetupGuideClose();
+    if (pendingSaveAction) {
+      setPendingSaveAction(false);
+      // Continue with save action
+      performSaveView();
+    }
+  };
+
+  // Helper function to create Canvas View database if it doesn't exist
+  const ensureCanvasViewDatabase = async (): Promise<string | null> => {
+    // If we already have a canvas view DB, return it
+    if (canvasViewDbId) {
+      return canvasViewDbId;
+    }
+
+    // If we don't have the task calendar DB ID, can't create Canvas View DB
+    if (!taskCalendarDbId) {
+      console.warn('[CanvasView] No taskCalendarDbId available to create Canvas View database');
+      return null;
+    }
+
+    setIsCreatingCanvasViewDb(true);
+    console.log('[CanvasView] Creating Canvas View database...');
+
+    try {
+      // Call the setup API to create the Canvas View database
+      const response = await fetch('/api/databases/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          databaseId: taskCalendarDbId,
+          dataSourceId,
+          autoSetup: true,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.canvasViewDbId) {
+        console.log('[CanvasView] Created Canvas View database:', result.canvasViewDbId);
+
+        // Update local state
+        setCanvasViewDbId(result.canvasViewDbId);
+
+        // Update localStorage config with the new canvasViewDbId
+        const configStr = localStorage.getItem('notion_visualizer_config');
+        if (configStr) {
+          try {
+            const config = JSON.parse(configStr);
+            config.databases.canvasViewDbId = result.canvasViewDbId;
+            localStorage.setItem('notion_visualizer_config', JSON.stringify(config));
+            console.log('[CanvasView] Updated config with new canvasViewDbId');
+          } catch (e) {
+            console.error('[CanvasView] Failed to update config:', e);
+          }
+        }
+
+        return result.canvasViewDbId;
+      } else {
+        console.warn('[CanvasView] Failed to create Canvas View database:', result.error);
+        return null;
+      }
+    } catch (error) {
+      console.error('[CanvasView] Error creating Canvas View database:', error);
+      return null;
+    } finally {
+      setIsCreatingCanvasViewDb(false);
+    }
+  };
+
+  // The actual save logic (called after setup guide is dismissed or skipped)
+  const performSaveView = async () => {
     const viewName = prompt('Enter a name for this view:');
     if (!viewName) return;
 
     const currentItemIds = nodes.map(n => n.id);
+
+    // Capture current viewport (zoom and pan position)
+    const currentViewport = reactFlowInstance.getViewport();
+    const viewport = {
+      x: Math.round(currentViewport.x * 100) / 100,
+      y: Math.round(currentViewport.y * 100) / 100,
+      zoom: Math.round(currentViewport.zoom * 100) / 100,
+    };
+    console.log('[CanvasView] Saving viewport:', viewport);
 
     // Collect current positions of all items on canvas
     const itemPositions = nodes.map(node => ({
@@ -815,45 +1228,59 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     const existingView = savedViews.find(v => v.name === viewName);
 
     try {
-      // Save to Notion first (including positions)
+      // Ensure we have a Canvas View database (create if needed)
+      const effectiveCanvasViewDbId = await ensureCanvasViewDatabase();
+
+      if (!effectiveCanvasViewDbId) {
+        // Fall back to localStorage only
+        console.log('[CanvasView] No Canvas View database available, saving locally');
+        const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport };
+        const updatedViews = existingView
+          ? savedViews.map(v => v.name === viewName ? newView : v)
+          : [...savedViews, newView];
+
+        setSavedViews(updatedViews);
+        setViewsSource('local');
+        localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+        alert(`View "${viewName}" saved locally. Notion sync is not available.`);
+        return;
+      }
+
+      // Save to Notion (including positions and viewport)
       const response = await fetch('/api/canvas-views', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          apiKey, // Pass the API key
+          apiKey,
+          canvasViewDb: effectiveCanvasViewDbId, // Pass the Canvas View DB ID
           name: viewName,
           itemIds: currentItemIds,
-          existingViewId: existingView?.id, // Update if exists
-          itemPositions, // Include positions for each item
+          existingViewId: existingView?.id,
+          itemPositions,
+          viewport,
         }),
       });
 
       const result = await response.json();
 
       if (result.success) {
-        console.log('[CanvasView] Saved view to Notion:', viewName, 'with', itemPositions.length, 'item positions');
+        console.log('[CanvasView] Saved view to Notion:', viewName, 'with', itemPositions.length, 'item positions and viewport:', viewport);
 
-        // Update local state with Notion view ID
-        const newView = { id: result.viewId, name: viewName, itemIds: currentItemIds };
+        // Update local state with Notion view ID and viewport
+        const newView: SavedView = { id: result.viewId, name: viewName, itemIds: currentItemIds, viewport };
 
         let updatedViews;
         if (existingView) {
-          // Update existing view
-          updatedViews = savedViews.map(v =>
-            v.name === viewName ? newView : v
-          );
+          updatedViews = savedViews.map(v => v.name === viewName ? newView : v);
         } else {
-          // Add new view
           updatedViews = [...savedViews, newView];
         }
 
         setSavedViews(updatedViews);
         setViewsSource('notion');
-
-        // Also save to localStorage as backup
         localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
 
-        alert(`View "${viewName}" saved with ${currentItemIds.length} items and their positions!`);
+        alert(`View "${viewName}" saved with ${currentItemIds.length} items, positions, and zoom level (${Math.round(viewport.zoom * 100)}%)!`);
       } else {
         throw new Error(result.error || 'Failed to save to Notion');
       }
@@ -861,7 +1288,7 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
       console.warn('[CanvasView] Failed to save to Notion, saving to localStorage only:', error);
 
       // Fallback: save to localStorage only
-      const newView = { name: viewName, itemIds: currentItemIds };
+      const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport };
       const updatedViews = existingView
         ? savedViews.map(v => v.name === viewName ? newView : v)
         : [...savedViews, newView];
@@ -874,24 +1301,48 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     }
   };
 
+  // Save current view - show guide first for non-demo users who haven't seen it
+  const saveCurrentView = async () => {
+    // Show setup guide for non-demo users who haven't seen it yet
+    if (!isDemoMode && !hasSeenSetupGuide) {
+      setPendingSaveAction(true);
+      setShowSetupGuide(true);
+      return;
+    }
+
+    // Otherwise proceed with save
+    performSaveView();
+  };
+
   // Load a saved view
-  const loadView = async (view: {id?: string, name: string, itemIds: string[]}) => {
+  const loadView = async (view: SavedView) => {
     // Clear current canvas
     setNodes([]);
     setEdges([]);
     setShowLoadView(false);
+
+    // Track if we should restore viewport from this view
+    let viewportToRestore: { x: number; y: number; zoom: number } | null = null;
 
     // If view has a Notion ID, fetch full item data with positions from Notion
     if (view.id) {
       try {
         console.log(`[CanvasView] Fetching view "${view.name}" from Notion with positions...`);
 
-        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&viewId=${encodeURIComponent(view.id)}`);
+        // Build URL with canvasViewDb if available
+        const params = new URLSearchParams({
+          apiKey,
+          viewId: view.id,
+        });
+        if (canvasViewDbId) {
+          params.append('canvasViewDb', canvasViewDbId);
+        }
+        const response = await fetch(`/api/canvas-views?${params.toString()}`);
         const result = await response.json();
 
         if (result.success && result.view) {
           const viewData = result.view;
-          console.log(`[CanvasView] Fetched ${viewData.items.length} items with positions`);
+          console.log(`[CanvasView] Fetched ${viewData.items.length} items with positions, viewport:`, viewData.viewport);
 
           // Add items to canvas with their saved positions
           viewData.items.forEach((notionItem: any) => {
@@ -906,7 +1357,22 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
             addItemToCanvas(item);
           });
 
+          // Check for viewport from Notion response
+          if (viewData.viewport) {
+            viewportToRestore = viewData.viewport;
+          }
+
           console.log(`[CanvasView] Loaded view "${view.name}" with ${viewData.items.length} items from Notion`);
+
+          // Restore viewport after a short delay to ensure nodes are rendered
+          if (viewportToRestore) {
+            setHasRestoredViewport(true);
+            setTimeout(() => {
+              console.log('[CanvasView] Restoring viewport:', viewportToRestore);
+              reactFlowInstance.setViewport(viewportToRestore!);
+            }, 100);
+          }
+
           return;
         } else {
           console.warn('[CanvasView] Failed to fetch from Notion, falling back to local items:', result.error);
@@ -924,6 +1390,17 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
       }
     });
 
+    // Check for viewport in local view data
+    if (view.viewport) {
+      viewportToRestore = view.viewport;
+      setHasRestoredViewport(true);
+      // Restore viewport after a short delay to ensure nodes are rendered
+      setTimeout(() => {
+        console.log('[CanvasView] Restoring viewport from local view:', viewportToRestore);
+        reactFlowInstance.setViewport(viewportToRestore!);
+      }, 100);
+    }
+
     console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items (local fallback)`);
   };
 
@@ -937,7 +1414,14 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
     // If view has a Notion ID, delete from Notion first
     if (viewToDelete?.id) {
       try {
-        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&viewId=${encodeURIComponent(viewToDelete.id)}`, {
+        const params = new URLSearchParams({
+          apiKey,
+          viewId: viewToDelete.id,
+        });
+        if (canvasViewDbId) {
+          params.append('canvasViewDb', canvasViewDbId);
+        }
+        const response = await fetch(`/api/canvas-views?${params.toString()}`, {
           method: 'DELETE',
         });
 
@@ -1217,9 +1701,10 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgesDelete={onEdgesDelete}
+        onNodesDelete={onNodesDelete}
         nodeTypes={nodeTypes}
-        fitView
-        deleteKeyCode="Delete"
+        fitView={!hasRestoredViewport}
+        deleteKeyCode={['Delete', 'Backspace']}
         style={{
           background: `linear-gradient(to bottom right, ${canvasBgGradientStart}, ${canvasBgGradientEnd})`,
         }}
@@ -1228,6 +1713,14 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
         <Controls />
         <MiniMap />
       </ReactFlow>
+
+      {/* Canvas View Setup Guide Modal */}
+      <CanvasViewSetupGuide
+        isOpen={showSetupGuide}
+        onClose={handleSetupGuideClose}
+        onContinueAnyway={handleContinueSaveAnyway}
+        mainDatabaseName="your task database"
+      />
 
       {/* Property Editor Modal */}
       {editingItemId && (() => {
@@ -1248,6 +1741,95 @@ export default function CanvasView({ apiKey, dataSourceId, onShowSettings }: Can
           />
         ) : null;
       })()}
+
+      {/* Delete Confirmation Modal - Light & Modern */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-50">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-xl border border-gray-200/50 p-8 max-w-sm w-full mx-4">
+            {/* Icon */}
+            <div className="text-center mb-5">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center border border-red-100">
+                <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                Remove {nodesToDelete.length === 1 ? 'Item' : `${nodesToDelete.length} Items`}?
+              </h3>
+              <p className="text-gray-500 text-sm">
+                {nodesToDelete.length === 1
+                  ? `"${nodesToDelete[0]?.data?.label || 'Untitled'}"`
+                  : `${nodesToDelete.length} selected items`
+                }
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* Remove from canvas only */}
+              <button
+                onClick={handleDeleteFromCanvas}
+                disabled={isDeleting}
+                className="w-full py-3 px-4 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl font-medium transition-all flex items-center justify-center gap-2 border border-gray-200/80"
+              >
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                </svg>
+                Hide from Canvas
+              </button>
+
+              {/* Delete from Notion */}
+              <button
+                onClick={handleDeleteFromNotion}
+                disabled={isDeleting}
+                className="w-full py-3 px-4 bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              >
+                {isDeleting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete from Notion
+                  </>
+                )}
+              </button>
+
+              {/* Cancel */}
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setNodesToDelete([]);
+                }}
+                disabled={isDeleting}
+                className="w-full py-2.5 text-gray-500 hover:text-gray-700 font-medium transition-colors disabled:opacity-50 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400 text-center mt-4">
+              Hide keeps items in Notion • Delete archives them
+            </p>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// Wrapper component that provides ReactFlowProvider context
+// This is required for useReactFlow() hook to work inside CanvasViewInner
+export default function CanvasView(props: CanvasViewProps) {
+  return (
+    <ReactFlowProvider>
+      <CanvasViewInner {...props} />
+    </ReactFlowProvider>
   );
 }

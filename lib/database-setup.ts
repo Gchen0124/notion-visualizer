@@ -262,6 +262,10 @@ export async function createCanvasViewDatabase(
             },
           },
         },
+        // Viewport properties for saving zoom and pan position
+        viewport_x: { rich_text: {} },
+        viewport_y: { rich_text: {} },
+        viewport_zoom: { rich_text: {} },
       },
     });
 

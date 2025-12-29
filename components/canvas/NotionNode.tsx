@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 
 interface NotionNodeData {
@@ -31,8 +32,21 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(data.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const colorButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Update picker position when button is clicked
+  const handleColorPickerToggle = () => {
+    if (!showColorPicker && colorButtonRef.current) {
+      const rect = colorButtonRef.current.getBoundingClientRect();
+      setPickerPosition({
+        top: rect.bottom + 8,
+        left: Math.max(8, rect.right - 280), // 280px is min-width of picker, ensure it stays on screen
+      });
+    }
+    setShowColorPicker(!showColorPicker);
+  };
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -102,15 +116,21 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
 
   return (
     <div className="relative w-full h-full">
-      {/* Node Resizer - allows resizing the block */}
+      {/* Node Resizer - allows resizing the block with modern white handles */}
       <NodeResizer
         isVisible={selected}
         minWidth={200}
         minHeight={150}
+        lineStyle={{
+          border: 'none',
+        }}
         handleStyle={{
-          width: '10px',
-          height: '10px',
-          borderRadius: '50%',
+          width: '12px',
+          height: '12px',
+          borderRadius: '3px',
+          backgroundColor: 'white',
+          border: '2px solid rgba(0, 0, 0, 0.2)',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
         }}
       />
 
@@ -135,7 +155,95 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
             : `0 4px 16px ${borderColor}40`,
         }}
       >
-        {/* Header with title - different layout based on childrenVisible */}
+        {/* Photo Mode Layout - Clean centered title */}
+        {data.showImage && imageUrl && !data.childrenVisible && (
+          <div className="absolute inset-0 flex flex-col">
+            {/* Centered title */}
+            <div className="flex-1 flex items-center justify-center px-4 cursor-move">
+              {isEditingTitle ? (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={handleTitleBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTitleBlur();
+                    if (e.key === 'Escape') {
+                      setTitle(data.label);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  className="bg-white/90 backdrop-blur-sm rounded-xl px-4 py-2 text-lg font-semibold outline-none focus:ring-2 focus:ring-white/50 shadow-lg text-center max-w-[90%]"
+                  autoFocus
+                />
+              ) : (
+                <h3
+                  onClick={() => setIsEditingTitle(true)}
+                  className="text-xl font-bold cursor-text px-4 py-2 rounded-xl backdrop-blur-md bg-black/40 text-white shadow-lg border border-white/20 text-center max-w-[90%] truncate"
+                >
+                  {data.label}
+                </h3>
+              )}
+            </div>
+
+            {/* Bottom toolbar - sleek glassmorphism */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+              <div className="flex items-center gap-1.5 px-3 py-2 rounded-full backdrop-blur-xl bg-black/30 border border-white/20 shadow-lg">
+                {/* Color picker */}
+                <button
+                  ref={colorButtonRef}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleColorPickerToggle();
+                  }}
+                  className="w-6 h-6 rounded-full border-2 border-white/50 shadow-sm hover:scale-110 transition-transform"
+                  style={{ background: gradientStyle }}
+                  title="Change colors"
+                />
+                {/* Image toggle */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onToggleImage && data.onToggleImage();
+                  }}
+                  className="w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors text-sm"
+                  title="Hide image"
+                >
+                  🖼️
+                </button>
+                {/* Settings */}
+                {data.onOpenPropertyEditor && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      data.onOpenPropertyEditor();
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors text-sm"
+                    title="Edit properties"
+                  >
+                    ⚙️
+                  </button>
+                )}
+                {/* Sub-items toggle */}
+                {data.hasChildren && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      data.onToggleSubItems && data.onToggleSubItems();
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors text-sm"
+                    title="Show sub-items"
+                  >
+                    👁️‍🗨️
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Normal Mode Header - only show when NOT in photo mode without children */}
+        {!(data.showImage && imageUrl && !data.childrenVisible) && (
         <div
           className={`px-4 py-3 cursor-move relative ${
             data.childrenVisible
@@ -169,18 +277,18 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
               <h3
                 className={`font-semibold cursor-text ${
                   data.childrenVisible ? 'text-sm' : 'text-2xl'
-                } ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}
+                }`}
               >
                 {data.label}
               </h3>
               {data.childrenVisible && (
-                <div className={`flex items-center space-x-1 ${data.showImage && imageUrl ? 'px-2 py-1 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}>
+                <div className="flex items-center space-x-1">
                   {/* Color picker button */}
                   <button
                     ref={colorButtonRef}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowColorPicker(!showColorPicker);
+                      handleColorPickerToggle();
                     }}
                     className="p-1 w-6 h-6 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
                     style={{ background: gradientStyle }}
@@ -228,10 +336,18 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
             </div>
           )}
 
-          {/* Color picker dropdown */}
-          {showColorPicker && (
-            <div ref={colorPickerRef} className="absolute top-12 right-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
-              <h4 className="text-xs font-semibold mb-3">Background Colors</h4>
+          {/* Color picker dropdown - rendered via portal to avoid overflow clipping */}
+          {showColorPicker && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={colorPickerRef}
+              className="fixed bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 min-w-[280px]"
+              style={{
+                top: pickerPosition.top,
+                left: pickerPosition.left,
+                zIndex: 9999,
+              }}
+            >
+              <h4 className="text-xs font-semibold mb-3 text-gray-800 dark:text-gray-200">Background Colors</h4>
 
               {/* Custom color pickers */}
               <div className="space-y-3 mb-3">
@@ -294,9 +410,11 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
                   ))}
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
+        )}
 
         {/* Content area - only show when childrenVisible is true */}
         {data.childrenVisible && (
@@ -386,16 +504,16 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
           </div>
         )}
 
-        {/* Footer with icons - only show when childrenVisible is false */}
-        {!data.childrenVisible && (
+        {/* Footer with icons - only show when childrenVisible is false AND not in photo mode */}
+        {!data.childrenVisible && !(data.showImage && imageUrl) && (
           <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center px-4">
-            <div className={`flex items-center space-x-2 ${data.showImage && imageUrl ? 'px-3 py-1.5 rounded-lg backdrop-blur-sm bg-white/90 shadow-lg border border-white/50' : ''}`}>
+            <div className="flex items-center space-x-2">
               {/* Color picker button */}
               <button
                 ref={colorButtonRef}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowColorPicker(!showColorPicker);
+                  handleColorPickerToggle();
                 }}
                 className="p-1.5 w-7 h-7 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
                 style={{ background: gradientStyle }}
