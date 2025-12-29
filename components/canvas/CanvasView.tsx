@@ -36,7 +36,7 @@ interface CanvasViewProps {
   isDemoMode?: boolean;    // Show demo-specific UI hints
 }
 
-// Interface for saved view with optional viewport
+// Interface for saved view with optional viewport and positions
 interface SavedView {
   id?: string;
   name: string;
@@ -46,6 +46,15 @@ interface SavedView {
     y: number;
     zoom: number;
   };
+  // Local-only: positions for each item (used when Notion sync fails)
+  itemPositions?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    color?: string;
+    gradientStart?: string;
+    gradientEnd?: string;
+  }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1232,9 +1241,17 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       const effectiveCanvasViewDbId = await ensureCanvasViewDatabase();
 
       if (!effectiveCanvasViewDbId) {
-        // Fall back to localStorage only
-        console.log('[CanvasView] No Canvas View database available, saving locally');
-        const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport };
+        // Fall back to localStorage only - include positions for local restore
+        console.log('[CanvasView] No Canvas View database available, saving locally with positions');
+        const localItemPositions = nodes.map(node => ({
+          id: node.id,
+          x: Math.round(node.position.x),
+          y: Math.round(node.position.y),
+          color: node.data.color,
+          gradientStart: node.data.gradientColors?.start,
+          gradientEnd: node.data.gradientColors?.end,
+        }));
+        const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport, itemPositions: localItemPositions };
         const updatedViews = existingView
           ? savedViews.map(v => v.name === viewName ? newView : v)
           : [...savedViews, newView];
@@ -1242,7 +1259,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         setSavedViews(updatedViews);
         setViewsSource('local');
         localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
-        alert(`View "${viewName}" saved locally. Notion sync is not available.`);
+        alert(`View "${viewName}" saved locally with positions. Notion sync is not available.`);
         return;
       }
 
@@ -1287,8 +1304,16 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     } catch (error: any) {
       console.warn('[CanvasView] Failed to save to Notion, saving to localStorage only:', error);
 
-      // Fallback: save to localStorage only
-      const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport };
+      // Fallback: save to localStorage only - include positions for local restore
+      const localItemPositions = nodes.map(node => ({
+        id: node.id,
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+        color: node.data.color,
+        gradientStart: node.data.gradientColors?.start,
+        gradientEnd: node.data.gradientColors?.end,
+      }));
+      const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport, itemPositions: localItemPositions };
       const updatedViews = existingView
         ? savedViews.map(v => v.name === viewName ? newView : v)
         : [...savedViews, newView];
@@ -1297,7 +1322,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       setViewsSource('local');
       localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
 
-      alert(`View "${viewName}" saved locally (Notion sync failed: ${error.message})`);
+      alert(`View "${viewName}" saved locally with positions (Notion sync failed: ${error.message})`);
     }
   };
 
@@ -1382,11 +1407,39 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       }
     }
 
-    // Fallback: Add items from local state (without Notion positions)
-    view.itemIds.forEach(itemId => {
+    // Fallback: Add items from local state with saved positions
+    console.log(`[CanvasView] Loading view "${view.name}" from local storage with ${view.itemPositions?.length || 0} saved positions`);
+
+    // Build a map of saved positions for quick lookup
+    const positionMap = new Map<string, { x: number; y: number; color?: string; gradientStart?: string; gradientEnd?: string }>();
+    if (view.itemPositions) {
+      view.itemPositions.forEach(pos => {
+        positionMap.set(pos.id, pos);
+      });
+    }
+
+    view.itemIds.forEach((itemId, index) => {
       const item = items.find(i => i.id === itemId);
       if (item) {
-        addItemToCanvas(item);
+        // Check if we have saved local position
+        const savedPos = positionMap.get(itemId);
+        if (savedPos) {
+          // Inject position into item properties for addItemToCanvas to use
+          const itemWithPosition = {
+            ...item,
+            properties: {
+              ...item.properties,
+              canvas_x: savedPos.x,
+              canvas_y: savedPos.y,
+              canvas_color: savedPos.color || item.properties.canvas_color,
+              canvas_gradient_start: savedPos.gradientStart || item.properties.canvas_gradient_start,
+              canvas_gradient_end: savedPos.gradientEnd || item.properties.canvas_gradient_end,
+            }
+          };
+          addItemToCanvas(itemWithPosition);
+        } else {
+          addItemToCanvas(item);
+        }
       }
     });
 
@@ -1401,7 +1454,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       }, 100);
     }
 
-    console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items (local fallback)`);
+    console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items and ${positionMap.size} positions (local fallback)`);
   };
 
   // Delete a saved view - delete from Notion first, then localStorage
