@@ -872,11 +872,10 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     });
   }, [setNodes, setItems]);
 
-  // Patch callbacks for demo mode nodes (separate effect to avoid stale closures)
+  // Patch callbacks for nodes that need it (separate effect to avoid stale closures)
   // This effect runs after all callback functions are defined
+  // Works for both demo mode and connected mode when loading views
   useEffect(() => {
-    if (!isDemoMode) return;
-
     setNodes((nds) => {
       const needsPatch = nds.some((n) => n.data._needsCallbackPatch);
       if (!needsPatch) return nds;
@@ -942,7 +941,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     });
   // Note: We intentionally include nodes.length to re-run when nodes are added
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode, items, setNodes, toggleSubItems, toggleImage, nodes.length]);
+  }, [items, setNodes, toggleSubItems, toggleImage, nodes.length]);
 
   // Handle node drop for nesting
   const onConnect = useCallback(
@@ -1547,7 +1546,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
           <div className="p-2 space-y-1">
             {/* Add Item */}
             <button
-              onClick={() => { setShowSearch(!showSearch); setToolbarExpanded(true); }}
+              onClick={() => { setShowSearch(!showSearch); setShowLoadView(false); setToolbarExpanded(true); }}
               className={`w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
                 showSearch ? 'bg-purple-100 dark:bg-purple-900/40' : ''
               }`}
@@ -1559,7 +1558,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
             {/* Save View */}
             <button
-              onClick={saveCurrentView}
+              onClick={() => { setShowSearch(false); setShowLoadView(false); saveCurrentView(); }}
               className="w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
               title="Save View"
             >
@@ -1569,7 +1568,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
             {/* Load View */}
             <button
-              onClick={() => { setShowLoadView(!showLoadView); setToolbarExpanded(true); }}
+              onClick={() => { setShowLoadView(!showLoadView); setShowSearch(false); setToolbarExpanded(true); }}
               className={`w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
                 showLoadView ? 'bg-purple-100 dark:bg-purple-900/40' : ''
               }`}
@@ -1583,7 +1582,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
             <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
 
             {/* Canvas Background */}
-            <div className="p-2">
+            <div className="p-2" onClick={() => { setShowSearch(false); setShowLoadView(false); }}>
               <div className="flex items-center mb-2">
                 <span className="text-lg">🎨</span>
                 {toolbarExpanded && <span className="ml-3 text-sm font-medium">Canvas BG</span>}
@@ -1648,7 +1647,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
             {/* Settings - Database Connection */}
             {onShowSettings && (
               <button
-                onClick={onShowSettings}
+                onClick={() => { setShowSearch(false); setShowLoadView(false); onShowSettings(); }}
                 className="w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
                 title="Database Settings"
               >
@@ -1661,13 +1660,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
         {/* Search Dropdown - appears next to panel when expanded */}
         {showSearch && toolbarExpanded && (
-          <div className="absolute left-full top-12 ml-2 bg-white/90 backdrop-blur-xl rounded-xl shadow-2xl p-4 w-80 border border-white/40">
+          <div className="absolute left-full top-12 ml-2 bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-2xl p-4 w-80 border border-gray-700">
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search or create new..."
-              className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 mb-2"
+              className="w-full px-3 py-2 bg-gray-700 text-white placeholder-gray-400 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 mb-2"
               autoFocus
             />
 
