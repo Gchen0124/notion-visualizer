@@ -107,6 +107,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
   const [canvasViewDbId, setCanvasViewDbId] = useState<string | undefined>(initialCanvasViewDbId);
   const [isCreatingCanvasViewDb, setIsCreatingCanvasViewDb] = useState(false);
 
+  // Debug: Log dataSourceId on mount and when it changes
+  useEffect(() => {
+    console.log('[CanvasView] Component initialized with dataSourceId:', dataSourceId);
+    console.log('[CanvasView] isDemoMode:', isDemoMode);
+    console.log('[CanvasView] canvasViewDbId:', canvasViewDbId);
+  }, [dataSourceId, isDemoMode, canvasViewDbId]);
+
   // Load saved views - try Notion first, fallback to localStorage
   useEffect(() => {
     async function loadViews() {
@@ -132,11 +139,21 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       }
 
       // Fallback to localStorage
-      const saved = localStorage.getItem(`canvas_views_${dataSourceId}`);
+      const localStorageKey = `canvas_views_${dataSourceId}`;
+      console.log('[CanvasView] Checking localStorage with key:', localStorageKey);
+      const saved = localStorage.getItem(localStorageKey);
+      console.log('[CanvasView] localStorage value:', saved ? `${saved.length} chars` : 'null');
       if (saved) {
-        console.log('[CanvasView] Loaded views from localStorage');
-        setSavedViews(JSON.parse(saved));
-        setViewsSource('local');
+        try {
+          const parsedViews = JSON.parse(saved);
+          console.log('[CanvasView] Loaded views from localStorage:', parsedViews.length, 'views');
+          setSavedViews(parsedViews);
+          setViewsSource('local');
+        } catch (parseError) {
+          console.error('[CanvasView] Failed to parse localStorage views:', parseError);
+        }
+      } else {
+        console.log('[CanvasView] No views found in localStorage');
       }
     }
 
@@ -1270,7 +1287,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
         setSavedViews(updatedViews);
         setViewsSource('local');
-        localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+        const localStorageKey = `canvas_views_${dataSourceId}`;
+        console.log('[CanvasView] No Canvas View DB - Saving to localStorage with key:', localStorageKey);
+        console.log('[CanvasView] Saving views:', updatedViews.length, 'views');
+        localStorage.setItem(localStorageKey, JSON.stringify(updatedViews));
+        // Verify save worked
+        const verifyRead = localStorage.getItem(localStorageKey);
+        console.log('[CanvasView] Verify localStorage after save:', verifyRead ? `${verifyRead.length} chars` : 'null');
         alert(`View "${viewName}" saved locally with positions. Notion sync is not available.`);
         return;
       }
@@ -1332,7 +1355,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
       setSavedViews(updatedViews);
       setViewsSource('local');
-      localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(updatedViews));
+      const localStorageKey = `canvas_views_${dataSourceId}`;
+      console.log('[CanvasView] Saving to localStorage with key:', localStorageKey);
+      console.log('[CanvasView] Saving views:', updatedViews.length, 'views');
+      localStorage.setItem(localStorageKey, JSON.stringify(updatedViews));
+      // Verify save worked
+      const verifyRead = localStorage.getItem(localStorageKey);
+      console.log('[CanvasView] Verify localStorage after save:', verifyRead ? `${verifyRead.length} chars` : 'null');
 
       alert(`View "${viewName}" saved locally with positions (Notion sync failed: ${error.message})`);
     }
