@@ -284,7 +284,8 @@ async function getCanvasViews(notion: Client, canvasViewDbId: string, itemsRelat
     let response: any;
     try {
       // First try with databases.query (standard database_id format)
-      response = await notion.databases.query({
+      // Cast to any because TypeScript types for Notion SDK are incomplete
+      response = await (notion as any).databases.query({
         database_id: canvasViewDbId,
         page_size: 100,
       });
