@@ -1681,7 +1681,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
               )}
 
               {filteredItems.length === 0 && !searchTerm ? (
-                <div className="px-3 py-2 text-sm text-gray-500">
+                <div className="px-3 py-2 text-sm text-gray-400">
                   Start typing to search or create...
                 </div>
               ) : (
@@ -1696,7 +1696,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
                     <button
                       key={item.id}
                       onClick={() => addItemToCanvas(item)}
-                      className="w-full px-3 py-2 text-left hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded transition-colors text-sm"
+                      className="w-full px-3 py-2 text-left hover:bg-purple-700/50 rounded transition-colors text-sm text-white"
                     >
                       {title}
                     </button>

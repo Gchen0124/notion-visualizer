@@ -50,19 +50,36 @@ export async function POST(request: NextRequest) {
     if (checkOnly) {
       const dbInfo = await getDatabaseInfo(apiKey, databaseId, dataSourceId);
 
-      // Check if main database has Canvas View relation
-      const hasCanvasViewRelation = Object.values(dbInfo.properties).some(
-        (prop) =>
+      // Check if main database has Canvas View relation and get the related database ID
+      let canvasViewDbId: string | null = null;
+      for (const [propName, prop] of Object.entries(dbInfo.properties)) {
+        if (
           prop.type === 'relation' &&
-          prop.name.toLowerCase().includes('canvas')
-      );
+          propName.toLowerCase().includes('canvas')
+        ) {
+          // Try to get the related database ID from the relation property
+          // We need to fetch the full database schema to get this
+          try {
+            const { Client } = await import('@notionhq/client');
+            const notion = new Client({ auth: apiKey });
+            const fullDb: any = await notion.databases.retrieve({ database_id: databaseId });
+            const relationProp = fullDb.properties[propName];
+            if (relationProp?.relation?.database_id) {
+              canvasViewDbId = relationProp.relation.database_id;
+              console.log(`[API /databases/setup] Found Canvas View DB ID from relation: ${canvasViewDbId}`);
+            }
+          } catch (e) {
+            console.warn('[API /databases/setup] Could not get relation database ID:', e);
+          }
+          break;
+        }
+      }
 
       return NextResponse.json({
         success: true,
         database: dbInfo,
-        hasCanvasViewRelation,
-        // If there's a relation, we assume there's a Canvas View DB but we don't know its ID
-        canvasViewDbId: hasCanvasViewRelation ? 'detected' : null,
+        hasCanvasViewRelation: !!canvasViewDbId,
+        canvasViewDbId,
       });
     }
 
