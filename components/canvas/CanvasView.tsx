@@ -115,10 +115,28 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
   }, [dataSourceId, isDemoMode, canvasViewDbId]);
 
   // Load saved views - try Notion first, fallback to localStorage
+  // IMPORTANT: Merge Notion views with local views to preserve itemPositions
   useEffect(() => {
     async function loadViews() {
+      const localStorageKey = `canvas_views_${dataSourceId}`;
+
+      // First, always load from localStorage to get any locally-saved positions
+      let localViews: SavedView[] = [];
+      const saved = localStorage.getItem(localStorageKey);
+      console.log('[CanvasView] Checking localStorage with key:', localStorageKey);
+      console.log('[CanvasView] localStorage value:', saved ? `${saved.length} chars` : 'null');
+
+      if (saved) {
+        try {
+          localViews = JSON.parse(saved);
+          console.log('[CanvasView] Loaded views from localStorage:', localViews.length, 'views');
+        } catch (parseError) {
+          console.error('[CanvasView] Failed to parse localStorage views:', parseError);
+        }
+      }
+
+      // Then try to fetch from Notion
       try {
-        // Try fetching from Notion first (pass canvasViewDb if available)
         const params = new URLSearchParams({ apiKey });
         if (canvasViewDbId) {
           params.append('canvasViewDb', canvasViewDbId);
@@ -128,30 +146,47 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
         if (result.success && result.views && result.views.length > 0) {
           console.log('[CanvasView] Loaded views from Notion:', result.views.length);
-          setSavedViews(result.views);
+
+          // Merge: Notion views take precedence, but preserve local itemPositions
+          const notionViews = result.views as SavedView[];
+          const mergedViews = notionViews.map(notionView => {
+            // Find matching local view by name or id
+            const localView = localViews.find(lv =>
+              (notionView.id && lv.id === notionView.id) || lv.name === notionView.name
+            );
+
+            // If local view has itemPositions (from failed Notion save), preserve them
+            if (localView?.itemPositions && localView.itemPositions.length > 0) {
+              console.log(`[CanvasView] Preserving local itemPositions for view "${notionView.name}"`);
+              return { ...notionView, itemPositions: localView.itemPositions };
+            }
+            return notionView;
+          });
+
+          // Also add any local-only views (not in Notion)
+          const localOnlyViews = localViews.filter(lv =>
+            !notionViews.some(nv => (nv.id && lv.id === nv.id) || nv.name === lv.name)
+          );
+          if (localOnlyViews.length > 0) {
+            console.log('[CanvasView] Adding local-only views:', localOnlyViews.map(v => v.name));
+          }
+
+          const allViews = [...mergedViews, ...localOnlyViews];
+          setSavedViews(allViews);
           setViewsSource('notion');
-          // Also sync to localStorage as backup
-          localStorage.setItem(`canvas_views_${dataSourceId}`, JSON.stringify(result.views));
+
+          // Update localStorage with merged views (preserving itemPositions)
+          localStorage.setItem(localStorageKey, JSON.stringify(allViews));
           return;
         }
       } catch (error) {
-        console.warn('[CanvasView] Failed to fetch views from Notion, falling back to localStorage:', error);
+        console.warn('[CanvasView] Failed to fetch views from Notion, using localStorage only:', error);
       }
 
-      // Fallback to localStorage
-      const localStorageKey = `canvas_views_${dataSourceId}`;
-      console.log('[CanvasView] Checking localStorage with key:', localStorageKey);
-      const saved = localStorage.getItem(localStorageKey);
-      console.log('[CanvasView] localStorage value:', saved ? `${saved.length} chars` : 'null');
-      if (saved) {
-        try {
-          const parsedViews = JSON.parse(saved);
-          console.log('[CanvasView] Loaded views from localStorage:', parsedViews.length, 'views');
-          setSavedViews(parsedViews);
-          setViewsSource('local');
-        } catch (parseError) {
-          console.error('[CanvasView] Failed to parse localStorage views:', parseError);
-        }
+      // Fallback to localStorage only
+      if (localViews.length > 0) {
+        setSavedViews(localViews);
+        setViewsSource('local');
       } else {
         console.log('[CanvasView] No views found in localStorage');
       }
