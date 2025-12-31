@@ -32,8 +32,19 @@ export default function DatabasePicker({
         const result = await response.json();
 
         if (result.success) {
-          setDatabases(result.databases);
-          if (result.databases.length === 0) {
+          // Filter out Canvas View databases - they're helper databases, not main task databases
+          // Canvas View DBs typically have "Canvas View" in the name or have "View Name" as title property
+          const filteredDatabases = result.databases.filter((db: DatabaseInfo) => {
+            const titleLower = db.title.toLowerCase();
+            const hasViewNameProperty = db.properties && 'View Name' in db.properties;
+            const isCanvasViewDb = titleLower.includes('canvas view') ||
+                                   titleLower.includes('canvas views') ||
+                                   hasViewNameProperty;
+            return !isCanvasViewDb;
+          });
+
+          setDatabases(filteredDatabases);
+          if (filteredDatabases.length === 0) {
             setError(
               'No databases found. Make sure you have shared at least one database with your integration.'
             );
