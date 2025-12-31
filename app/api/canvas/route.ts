@@ -116,14 +116,31 @@ export async function POST(request: NextRequest) {
       const formattedProps = formatPropertiesForNotion(properties, schema);
       console.log('[Canvas API] Formatted update properties:', JSON.stringify(formattedProps, null, 2));
 
-      const result = await (notion as any).pages.update({
-        page_id: itemId,
-        properties: formattedProps,
-      });
+      // If no properties to update after formatting (all were skipped), return success
+      if (Object.keys(formattedProps).length === 0) {
+        console.log('[Canvas API] No properties to update after filtering, skipping Notion call');
+        return NextResponse.json({ success: true, skipped: true });
+      }
 
-      console.log('[Canvas API] Update successful for page', itemId);
+      try {
+        const result = await (notion as any).pages.update({
+          page_id: itemId,
+          properties: formattedProps,
+        });
 
-      return NextResponse.json({ success: true });
+        console.log('[Canvas API] Update successful for page', itemId);
+        return NextResponse.json({ success: true });
+      } catch (updateError: any) {
+        // Handle property not exists errors gracefully (for canvas properties)
+        const errorMessage = updateError.message || '';
+        if (errorMessage.includes('is not a property that exists')) {
+          console.warn('[Canvas API] Property not found in database, skipping update:', errorMessage);
+          // Return success but indicate it was skipped - don't show error to user
+          return NextResponse.json({ success: true, skipped: true, reason: 'property_not_exists' });
+        }
+        // Re-throw other errors
+        throw updateError;
+      }
     } else if (action === 'delete') {
       console.log('[Canvas API] Deleting page', itemId);
 

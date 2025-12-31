@@ -546,6 +546,9 @@ async function getCanvasViewWithItems(
         const canvas_color = getTextProperty(page, 'canvas_color') || null;
         const canvas_gradient_start = getTextProperty(page, 'canvas_gradient_start') || null;
         const canvas_gradient_end = getTextProperty(page, 'canvas_gradient_end') || null;
+        // New: item dimensions from database
+        const item_width = parseFloat(getTextProperty(page, 'item_width')) || null;
+        const item_height = parseFloat(getTextProperty(page, 'item_height')) || null;
 
         // Extract all properties for the item
         const properties: Record<string, any> = {};
@@ -584,6 +587,8 @@ async function getCanvasViewWithItems(
         properties.canvas_color = canvas_color;
         properties.canvas_gradient_start = canvas_gradient_start;
         properties.canvas_gradient_end = canvas_gradient_end;
+        properties.item_width = item_width;
+        properties.item_height = item_height;
 
         return {
           id: itemId,
@@ -595,6 +600,8 @@ async function getCanvasViewWithItems(
           canvas_color,
           canvas_gradient_start,
           canvas_gradient_end,
+          item_width,
+          item_height,
         };
       } catch (err) {
         console.error(`Failed to fetch item ${itemId}:`, err);

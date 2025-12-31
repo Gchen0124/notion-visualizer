@@ -157,7 +157,7 @@ export async function addMissingProperties(
   apiKey: string,
   databaseId: string,
   missingProperties: string[]
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; addedProperties?: string[]; skippedProperties?: string[]; error?: string }> {
   const notion = new Client({ auth: apiKey });
 
   try {
@@ -173,24 +173,52 @@ export async function addMissingProperties(
     }
 
     if (Object.keys(propertiesToAdd).length === 0) {
-      return { success: true };
+      return { success: true, addedProperties: [], skippedProperties: [] };
     }
 
     console.log(
-      `[addMissingProperties] Adding ${Object.keys(propertiesToAdd).length} properties to database ${databaseId}`
+      `[addMissingProperties] Adding ${Object.keys(propertiesToAdd).length} properties to database ${databaseId}:`,
+      Object.keys(propertiesToAdd)
     );
 
     // Type assertion needed for Notion SDK
-    await (notion.databases as any).update({
+    const updateResult = await (notion.databases as any).update({
       database_id: databaseId,
       properties: propertiesToAdd,
     });
 
-    console.log('[addMissingProperties] Properties added successfully');
-    return { success: true };
+    // Verify which properties were actually added by checking the response
+    const addedProperties: string[] = [];
+    const skippedProperties: string[] = [];
+
+    for (const propName of Object.keys(propertiesToAdd)) {
+      if (updateResult.properties && updateResult.properties[propName]) {
+        addedProperties.push(propName);
+      } else {
+        skippedProperties.push(propName);
+      }
+    }
+
+    console.log('[addMissingProperties] Properties added successfully:', addedProperties);
+    if (skippedProperties.length > 0) {
+      console.warn('[addMissingProperties] Some properties may not have been added:', skippedProperties);
+    }
+
+    return { success: true, addedProperties, skippedProperties };
   } catch (error: any) {
     console.error('[addMissingProperties] Error:', error.message);
-    return { success: false, error: error.message };
+    console.error('[addMissingProperties] Full error:', error);
+
+    // Check if it's a permission error
+    if (error.message?.includes('permission') || error.code === 'unauthorized') {
+      return {
+        success: false,
+        error: 'Missing permission to modify database schema. Canvas position saving will be local-only.',
+        skippedProperties: missingProperties
+      };
+    }
+
+    return { success: false, error: error.message, skippedProperties: missingProperties };
   }
 }
 
@@ -296,6 +324,7 @@ export async function setupDatabase(
   databaseId?: string;
   dataSourceId?: string;
   error?: string;
+  warning?: string;
 }> {
   try {
     console.log(`[setupDatabase] Setting up database: ${databaseId}, dataSourceId: ${dataSourceId}`);
@@ -309,6 +338,8 @@ export async function setupDatabase(
     console.log(`[setupDatabase] Validation result:`, validation);
 
     // 3. Add missing properties if any (uses database_id for update)
+    // Note: This is non-fatal - if we can't add properties, user can still use the app with local-only positioning
+    let propertyAdditionWarning: string | undefined;
     if (validation.missingProperties.length > 0) {
       console.log(
         `[setupDatabase] Adding missing properties: ${validation.missingProperties.join(', ')}`
@@ -320,7 +351,14 @@ export async function setupDatabase(
       );
 
       if (!addResult.success) {
-        return { success: false, validation, error: addResult.error };
+        // Don't fail the entire setup - just warn and continue
+        // The app can still work with local-only canvas positions
+        console.warn('[setupDatabase] Could not add canvas properties:', addResult.error);
+        console.warn('[setupDatabase] Canvas positions will be saved locally only');
+        propertyAdditionWarning = addResult.error;
+      } else if (addResult.skippedProperties && addResult.skippedProperties.length > 0) {
+        console.warn('[setupDatabase] Some properties could not be added:', addResult.skippedProperties);
+        propertyAdditionWarning = `Could not add: ${addResult.skippedProperties.join(', ')}`;
       }
     }
 
@@ -353,11 +391,12 @@ export async function setupDatabase(
       validation: {
         ...validation,
         isValid: true,
-        missingProperties: [],
+        missingProperties: propertyAdditionWarning ? validation.missingProperties : [],
       },
       canvasViewDbId,
       databaseId: dbInfo.databaseId,
       dataSourceId: dbInfo.dataSourceId,
+      warning: propertyAdditionWarning,
     };
   } catch (error: any) {
     console.error('[setupDatabase] Error:', error.message);

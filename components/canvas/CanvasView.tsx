@@ -188,12 +188,19 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
   useEffect(() => {
     // In demo mode, wait for savedViews to load, then find and load the welcome tour view
     if (isDemoMode && savedViews.length > 0 && items.length > 0 && !demoModeInitRef.current && !loading) {
-      // Look for a view that matches "welcome" - case insensitive
-      const welcomeView = savedViews.find(v =>
-        v.name.toLowerCase().includes('welcome') ||
-        v.name.toLowerCase().includes('tour') ||
-        v.name.toLowerCase().includes('tutorial')
-      );
+      // First, try to use defaultViewId if provided
+      let welcomeView = defaultViewId
+        ? savedViews.find(v => v.id === defaultViewId)
+        : null;
+
+      // Fall back to name-based search for "welcome", "tour", or "tutorial"
+      if (!welcomeView) {
+        welcomeView = savedViews.find(v =>
+          v.name.toLowerCase().includes('welcome') ||
+          v.name.toLowerCase().includes('tour') ||
+          v.name.toLowerCase().includes('tutorial')
+        );
+      }
 
       if (welcomeView && welcomeView.id) {
         console.log('[CanvasView] Demo mode: Found welcome view:', welcomeView.name);
@@ -241,7 +248,10 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
                   ? { start: gradientStart, end: gradientEnd }
                   : { start: '#ffffff', end: '#ededed' };
 
-                const nodeHeight = Math.max(180, 100 + subItemIds.length * 45);
+                // Get item dimensions from database (item_width, item_height) or calculate default
+                const itemWidth = notionItem.item_width ?? notionItem.properties?.item_width ?? 250;
+                const defaultHeight = Math.max(180, 100 + subItemIds.length * 45);
+                const itemHeight = notionItem.item_height ?? notionItem.properties?.item_height ?? defaultHeight;
 
                 // Check if item has Canvas_Visual image - auto-show image if it exists
                 const canvasVisual = notionItem.properties?.['Canvas_Visual'];
@@ -251,7 +261,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
                   id: notionItem.id,
                   type: 'notionNode',
                   position,
-                  style: { width: 250, height: nodeHeight },
+                  style: { width: itemWidth, height: itemHeight },
                   data: {
                     label: title,
                     properties: notionItem.properties,
@@ -293,7 +303,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         setHasLoadedInitialView(true);
       }
     }
-  }, [isDemoMode, savedViews, items, schema, loading, setNodes, apiKey, reactFlowInstance]);
+  }, [isDemoMode, savedViews, items, schema, loading, setNodes, apiKey, reactFlowInstance, defaultViewId]);
 
   // Toggle sub-items visibility within the block
   const toggleSubItems = useCallback(
@@ -434,8 +444,10 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         ? { start: gradientStart, end: gradientEnd }
         : { start: '#ffffff', end: '#ededed' };
 
-      // Calculate height based on number of sub-items
-      const nodeHeight = calculateNodeHeight(subItemIds.length);
+      // Get item dimensions from database (item_width, item_height) or calculate default
+      const itemWidth = item.properties.item_width ?? 250;
+      const defaultHeight = calculateNodeHeight(subItemIds.length);
+      const itemHeight = item.properties.item_height ?? defaultHeight;
 
       // Check if item has Canvas_Visual image - auto-show image if it exists
       const canvasVisual = item.properties['Canvas_Visual'];
@@ -445,7 +457,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         id: item.id,
         type: 'notionNode',
         position,
-        style: { width: 250, height: nodeHeight },
+        style: { width: itemWidth, height: itemHeight },
         data: {
           label: title,
           properties: item.properties,
@@ -928,8 +940,9 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         };
       });
     });
+  // Note: We intentionally include nodes.length to re-run when nodes are added
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMode, items, setNodes, toggleSubItems, toggleImage]);
+  }, [isDemoMode, items, setNodes, toggleSubItems, toggleImage, nodes.length]);
 
   // Handle node drop for nesting
   const onConnect = useCallback(
