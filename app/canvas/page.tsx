@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import CanvasView from '@/components/canvas/CanvasView';
 import { ConnectPage } from '@/components/connect';
 import { PrivacyNotice } from '@/components/connect';
@@ -8,6 +8,7 @@ import { DemoModeBanner } from '@/components/onboarding';
 import {
   loadConfig,
   clearConfig,
+  saveConfig,
   getEffectiveApiKey,
   getTaskCalendarDataSourceId,
   getConnectionMethodName,
@@ -137,67 +138,12 @@ export default function CanvasPage() {
   // Settings panel
   if (mode === 'settings' && config) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-purple-900 via-gray-900 to-pink-900">
-        <div className="w-full max-w-md bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-gray-700">
-          <h1 className="text-2xl font-bold mb-6 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Connection Settings
-          </h1>
-
-          {/* Current connection info */}
-          <div className="mb-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
-            <h3 className="font-semibold text-white mb-3">Current Connection</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Method:</span>
-                <span className="text-white">{getConnectionMethodName(config)}</span>
-              </div>
-              {config.connection.method === 'oauth' && (
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Workspace:</span>
-                  <span className="text-white">{config.connection.workspaceName}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-gray-400">Database:</span>
-                <span className="text-white truncate ml-2">
-                  {config.databases.taskCalendarDbName || config.databases.taskCalendarDbId.slice(0, 8) + '...'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Connected:</span>
-                <span className="text-white">
-                  {new Date(config.connectedAt).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Privacy notice */}
-          <PrivacyNotice variant="compact" className="mb-6" />
-
-          {/* Actions */}
-          <div className="space-y-3">
-            <button
-              onClick={() => setMode('connected')}
-              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:shadow-lg transition-all"
-            >
-              Back to Canvas
-            </button>
-
-            <button
-              onClick={handleDisconnect}
-              className="w-full px-6 py-3 bg-red-900/50 text-red-300 rounded-lg font-medium hover:bg-red-900/70 transition-all border border-red-700"
-            >
-              Disconnect
-            </button>
-          </div>
-
-          {/* Info */}
-          <p className="text-xs text-gray-500 mt-4 text-center">
-            Disconnecting will clear all local data. You can reconnect anytime.
-          </p>
-        </div>
-      </div>
+      <SettingsPanel
+        config={config}
+        onBack={() => setMode('connected')}
+        onDisconnect={handleDisconnect}
+        onConfigUpdate={(newConfig) => setConfig(newConfig)}
+      />
     );
   }
 
@@ -312,5 +258,320 @@ function DemoCanvasWrapper({ onShowSettings }: { onShowSettings: () => void }) {
       defaultViewId={demoCredentials.defaultViewId}
       isDemoMode={true}
     />
+  );
+}
+
+// Settings Panel Component with Canvas View Database Detection
+interface SettingsPanelProps {
+  config: NotionLocalConfig;
+  onBack: () => void;
+  onDisconnect: () => void;
+  onConfigUpdate: (config: NotionLocalConfig) => void;
+}
+
+interface CanvasViewStatus {
+  exists: boolean;
+  databaseId?: string;
+  databaseName?: string;
+  hasItemsRelation: boolean;
+  hasViewportProperties: boolean;
+  isFullyConfigured: boolean;
+  error?: string;
+}
+
+function SettingsPanel({ config, onBack, onDisconnect, onConfigUpdate }: SettingsPanelProps) {
+  const [canvasViewStatus, setCanvasViewStatus] = useState<CanvasViewStatus | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Check Canvas View database status
+  const checkCanvasViewStatus = useCallback(async () => {
+    setIsChecking(true);
+    setCreateError(null);
+
+    try {
+      const apiKey = getEffectiveApiKey(config);
+
+      // If we already have a canvasViewDbId in config, verify it exists
+      if (config.databases.canvasViewDbId) {
+        const response = await fetch(`/api/canvas-views?apiKey=${encodeURIComponent(apiKey)}&canvasViewDb=${encodeURIComponent(config.databases.canvasViewDbId)}`);
+        const result = await response.json();
+
+        if (result.success) {
+          setCanvasViewStatus({
+            exists: true,
+            databaseId: config.databases.canvasViewDbId,
+            databaseName: config.databases.canvasViewDbName || 'Canvas Views',
+            hasItemsRelation: true, // If we can fetch views, relation exists
+            hasViewportProperties: true,
+            isFullyConfigured: true,
+          });
+          return;
+        }
+      }
+
+      // Check if main database has Canvas View relation
+      const setupResponse = await fetch('/api/databases/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          databaseId: config.databases.taskCalendarDbId,
+          dataSourceId: config.databases.taskCalendarDataSourceId,
+          checkOnly: true, // Just check, don't auto-create
+        }),
+      });
+
+      const setupResult = await setupResponse.json();
+
+      if (setupResult.canvasViewDbId) {
+        // Found existing Canvas View database
+        setCanvasViewStatus({
+          exists: true,
+          databaseId: setupResult.canvasViewDbId,
+          hasItemsRelation: true,
+          hasViewportProperties: true,
+          isFullyConfigured: true,
+        });
+
+        // Update config with the found Canvas View DB
+        const updatedConfig = {
+          ...config,
+          databases: {
+            ...config.databases,
+            canvasViewDbId: setupResult.canvasViewDbId,
+          },
+        };
+        saveConfig(updatedConfig);
+        onConfigUpdate(updatedConfig);
+      } else {
+        // No Canvas View database found
+        setCanvasViewStatus({
+          exists: false,
+          hasItemsRelation: false,
+          hasViewportProperties: false,
+          isFullyConfigured: false,
+        });
+      }
+    } catch (error: any) {
+      console.error('[SettingsPanel] Error checking Canvas View status:', error);
+      setCanvasViewStatus({
+        exists: false,
+        hasItemsRelation: false,
+        hasViewportProperties: false,
+        isFullyConfigured: false,
+        error: error.message,
+      });
+    } finally {
+      setIsChecking(false);
+    }
+  }, [config, onConfigUpdate]);
+
+  // Check status on mount
+  useEffect(() => {
+    checkCanvasViewStatus();
+  }, [checkCanvasViewStatus]);
+
+  // Create Canvas View database
+  const handleCreateCanvasViewDb = async () => {
+    setIsCreating(true);
+    setCreateError(null);
+
+    try {
+      const apiKey = getEffectiveApiKey(config);
+
+      const response = await fetch('/api/databases/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          databaseId: config.databases.taskCalendarDbId,
+          dataSourceId: config.databases.taskCalendarDataSourceId,
+          createCanvasViewDb: true,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.canvasViewDbId) {
+        // Update config with new Canvas View DB
+        const updatedConfig = {
+          ...config,
+          databases: {
+            ...config.databases,
+            canvasViewDbId: result.canvasViewDbId,
+          },
+        };
+        saveConfig(updatedConfig);
+        onConfigUpdate(updatedConfig);
+
+        // Refresh status
+        await checkCanvasViewStatus();
+      } else {
+        setCreateError(result.error || 'Failed to create Canvas View database');
+      }
+    } catch (error: any) {
+      console.error('[SettingsPanel] Error creating Canvas View database:', error);
+      setCreateError(error.message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-purple-900 via-gray-900 to-pink-900">
+      <div className="w-full max-w-lg bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-gray-700">
+        <h1 className="text-2xl font-bold mb-6 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+          Connection Settings
+        </h1>
+
+        {/* Current connection info */}
+        <div className="mb-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+          <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+            <span className="text-green-400">✓</span>
+            Main Database Connected
+          </h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Method:</span>
+              <span className="text-white">{getConnectionMethodName(config)}</span>
+            </div>
+            {config.connection.method === 'oauth' && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Workspace:</span>
+                <span className="text-white">{config.connection.workspaceName}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-gray-400">Database:</span>
+              <span className="text-white truncate ml-2">
+                {config.databases.taskCalendarDbName || config.databases.taskCalendarDbId.slice(0, 8) + '...'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Connected:</span>
+              <span className="text-white">
+                {new Date(config.connectedAt).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Canvas View Database Status */}
+        <div className={`mb-6 p-4 rounded-lg border ${
+          canvasViewStatus?.isFullyConfigured
+            ? 'bg-green-900/20 border-green-700'
+            : 'bg-yellow-900/20 border-yellow-700'
+        }`}>
+          <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+            {isChecking ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-gray-400" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-gray-400">Checking...</span>
+              </>
+            ) : canvasViewStatus?.isFullyConfigured ? (
+              <>
+                <span className="text-green-400">✓</span>
+                Canvas View Database Ready
+              </>
+            ) : (
+              <>
+                <span className="text-yellow-400">⚠️</span>
+                Canvas View Database Needed
+              </>
+            )}
+          </h3>
+
+          {!isChecking && canvasViewStatus && (
+            <div className="space-y-3">
+              {canvasViewStatus.isFullyConfigured ? (
+                <div className="text-sm text-gray-300">
+                  <p>Your views will be saved to Notion and synced across devices.</p>
+                  {canvasViewStatus.databaseId && (
+                    <p className="text-gray-500 mt-1 text-xs">
+                      ID: {canvasViewStatus.databaseId.slice(0, 8)}...
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-yellow-300/80">
+                    Without a Canvas View database, your saved views will only be stored locally in this browser.
+                  </p>
+
+                  <div className="space-y-2 text-xs text-gray-400">
+                    <p>The Canvas View database will:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>Store your saved views in Notion</li>
+                      <li>Sync views across all your devices</li>
+                      <li>Link items to views via a relation property</li>
+                    </ul>
+                  </div>
+
+                  {createError && (
+                    <div className="p-2 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
+                      {createError}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleCreateCanvasViewDb}
+                    disabled={isCreating}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isCreating ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        ✨ Create Canvas View Database
+                      </>
+                    )}
+                  </button>
+
+                  <p className="text-xs text-gray-500 text-center">
+                    This will create a new database in your Notion workspace
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Privacy notice */}
+        <PrivacyNotice variant="compact" className="mb-6" />
+
+        {/* Actions */}
+        <div className="space-y-3">
+          <button
+            onClick={onBack}
+            className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:shadow-lg transition-all"
+          >
+            Back to Canvas
+          </button>
+
+          <button
+            onClick={onDisconnect}
+            className="w-full px-6 py-3 bg-red-900/50 text-red-300 rounded-lg font-medium hover:bg-red-900/70 transition-all border border-red-700"
+          >
+            Disconnect
+          </button>
+        </div>
+
+        {/* Info */}
+        <p className="text-xs text-gray-500 mt-4 text-center">
+          Disconnecting will clear all local data. You can reconnect anytime.
+        </p>
+      </div>
+    </div>
   );
 }
