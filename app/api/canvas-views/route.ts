@@ -277,26 +277,14 @@ interface CanvasViewport {
 // Fetch all canvas views
 async function getCanvasViews(notion: Client, canvasViewDbId: string, itemsRelationName: string): Promise<CanvasViewEntry[]> {
   try {
-    // canvasViewDbId might be either database_id or data_source_id
-    // Try databases.query first (using database_id), fallback to dataSources.query
+    // For Notion API 2025-09-03, use dataSources.query with the ID
+    // The ID can be either database_id or data_source_id format - Notion handles both
     console.log(`[getCanvasViews] Querying database: ${canvasViewDbId}`);
 
-    let response: any;
-    try {
-      // First try with databases.query (standard database_id format)
-      // Cast to any because TypeScript types for Notion SDK are incomplete
-      response = await (notion as any).databases.query({
-        database_id: canvasViewDbId,
-        page_size: 100,
-      });
-    } catch (dbQueryError: any) {
-      console.log(`[getCanvasViews] databases.query failed, trying dataSources.query: ${dbQueryError.message}`);
-      // Fallback to dataSources.query (data_source_id format)
-      response = await (notion as any).dataSources.query({
-        data_source_id: canvasViewDbId,
-        page_size: 100,
-      });
-    }
+    const response: any = await (notion as any).dataSources.query({
+      data_source_id: canvasViewDbId,
+      page_size: 100,
+    });
 
     console.log(`Fetched ${response.results.length} canvas views from Notion`);
     console.log(`Using items relation property: "${itemsRelationName}"`);
@@ -397,32 +385,16 @@ async function saveCanvasView(
       viewId = existingViewId;
       console.log(`Updated canvas view: ${name}`);
     } else {
-      // Create new view
-      // Note: canvasViewDbId might be either a database_id or data_source_id depending on source
-      // Try database_id first (from relation properties), fallback to data_source_id
+      // Create new view using data_source_id (Notion API 2025-09-03)
       console.log(`[saveCanvasView] Creating view in database: ${canvasViewDbId}`);
 
-      let response: any;
-      try {
-        // First try with database_id (standard format from relation properties)
-        response = await notion.pages.create({
-          parent: {
-            type: 'database_id',
-            database_id: canvasViewDbId,
-          },
-          properties: viewProperties,
-        });
-      } catch (dbIdError: any) {
-        console.log(`[saveCanvasView] database_id failed, trying data_source_id: ${dbIdError.message}`);
-        // Fallback to data_source_id format
-        response = await notion.pages.create({
-          parent: {
-            type: 'data_source_id',
-            data_source_id: canvasViewDbId,
-          },
-          properties: viewProperties,
-        });
-      }
+      const response: any = await notion.pages.create({
+        parent: {
+          type: 'data_source_id',
+          data_source_id: canvasViewDbId,
+        },
+        properties: viewProperties,
+      });
       viewId = response.id;
       console.log(`Created canvas view: ${name} (id: ${viewId})`);
     }
