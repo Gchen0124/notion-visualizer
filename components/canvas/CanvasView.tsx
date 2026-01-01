@@ -20,6 +20,7 @@ import '@xyflow/react/dist/style.css';
 import NotionNode from './NotionNode';
 import PropertyEditorModal from './PropertyEditorModal';
 import CanvasViewSetupGuide from './CanvasViewSetupGuide';
+import AILayoutAssistant from './AILayoutAssistant';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: any = {
@@ -106,6 +107,9 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
   // Canvas View database ID (can be updated if created on first save)
   const [canvasViewDbId, setCanvasViewDbId] = useState<string | undefined>(initialCanvasViewDbId);
   const [isCreatingCanvasViewDb, setIsCreatingCanvasViewDb] = useState(false);
+
+  // AI Layout Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
 
   // Debug: Log dataSourceId on mount and when it changes
   useEffect(() => {
@@ -1642,6 +1646,18 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
               {toolbarExpanded && <span className="ml-3 text-sm font-medium">Load View ({savedViews.length})</span>}
             </button>
 
+            {/* AI Layout Assistant */}
+            <button
+              onClick={() => { setShowAIAssistant(!showAIAssistant); setShowSearch(false); setShowLoadView(false); }}
+              className={`w-full flex items-center p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
+                showAIAssistant ? 'bg-purple-100 dark:bg-purple-900/40' : ''
+              }`}
+              title="AI Layout Assistant"
+            >
+              <span className="text-lg">✨</span>
+              {toolbarExpanded && <span className="ml-3 text-sm font-medium">AI Layout</span>}
+            </button>
+
             {/* Divider */}
             <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
 
@@ -1949,6 +1965,35 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
           </div>
         </div>
       )}
+
+      {/* AI Layout Assistant */}
+      <AILayoutAssistant
+        isOpen={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        items={nodes.map((node) => ({
+          id: node.id,
+          title: node.data?.label || 'Untitled',
+          properties: items.find((item) => item.id === node.id)?.properties || {},
+          currentPosition: { x: node.position.x, y: node.position.y },
+        }))}
+        schema={schema}
+        canvasSize={{ width: 3000, height: 2000 }}
+        onApplyLayout={(layoutItems) => {
+          // Update node positions based on AI-generated layout
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              const layoutItem = layoutItems.find((item) => item.id === node.id);
+              if (layoutItem) {
+                return {
+                  ...node,
+                  position: { x: layoutItem.x, y: layoutItem.y },
+                };
+              }
+              return node;
+            })
+          );
+        }}
+      />
     </div>
   );
 }

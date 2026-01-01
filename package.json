@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "365-day planning tracker synced with Notion",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@notionhq/client": "^5.4.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
