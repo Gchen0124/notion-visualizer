@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface WeekBlockProps {
   weekTitle: string;
@@ -24,6 +24,21 @@ export default function WeekBlock({
   const [isEditing, setIsEditing] = useState<'plan' | 'reality' | null>(null);
   const [editValue, setEditValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<'plan' | 'reality' | null>(null);
+  const planRef = useRef<HTMLDivElement>(null);
+  const realityRef = useRef<HTMLDivElement>(null);
+  const [planOverflows, setPlanOverflows] = useState(false);
+  const [realityOverflows, setRealityOverflows] = useState(false);
+
+  // Check if content overflows
+  useEffect(() => {
+    if (planRef.current) {
+      setPlanOverflows(planRef.current.scrollHeight > planRef.current.clientHeight);
+    }
+    if (realityRef.current) {
+      setRealityOverflows(realityRef.current.scrollHeight > realityRef.current.clientHeight);
+    }
+  }, [weekPlan, weekReality]);
 
   // Parse dates for display
   const startDateObj = new Date(startDate);
@@ -123,9 +138,21 @@ export default function WeekBlock({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-600 line-clamp-3 whitespace-pre-wrap">
+          <div
+            ref={planRef}
+            onClick={() => planOverflows && setExpandedSection(expandedSection === 'plan' ? null : 'plan')}
+            className={`
+              text-xs text-gray-600 whitespace-pre-wrap cursor-pointer
+              ${expandedSection === 'plan' ? 'max-h-48 overflow-y-auto' : 'line-clamp-3'}
+              ${planOverflows && expandedSection !== 'plan' ? 'hover:bg-purple-100 rounded transition-colors' : ''}
+            `}
+            title={planOverflows ? 'Click to expand' : undefined}
+          >
             {weekPlan || <span className="text-gray-400 italic">No plan yet</span>}
-          </p>
+            {planOverflows && expandedSection !== 'plan' && (
+              <span className="text-purple-400 text-[10px] ml-1">...</span>
+            )}
+          </div>
         )}
       </div>
 
@@ -168,9 +195,21 @@ export default function WeekBlock({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-600 line-clamp-3 whitespace-pre-wrap">
+          <div
+            ref={realityRef}
+            onClick={() => realityOverflows && setExpandedSection(expandedSection === 'reality' ? null : 'reality')}
+            className={`
+              text-xs text-gray-600 whitespace-pre-wrap cursor-pointer
+              ${expandedSection === 'reality' ? 'max-h-48 overflow-y-auto' : 'line-clamp-3'}
+              ${realityOverflows && expandedSection !== 'reality' ? 'hover:bg-orange-100 rounded transition-colors' : ''}
+            `}
+            title={realityOverflows ? 'Click to expand' : undefined}
+          >
             {weekReality || <span className="text-gray-400 italic">No reality yet</span>}
-          </p>
+            {realityOverflows && expandedSection !== 'reality' && (
+              <span className="text-orange-400 text-[10px] ml-1">...</span>
+            )}
+          </div>
         )}
       </div>
 

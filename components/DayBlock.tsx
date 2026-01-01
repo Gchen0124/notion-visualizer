@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 type TaskStatus = 'Not started' | 'In progress' | 'Complete' | 'Missing' | null;
 
@@ -66,6 +66,21 @@ export default function DayBlock({
   const [isEditing, setIsEditing] = useState<'plan' | 'reality' | null>(null);
   const [editValue, setEditValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<'plan' | 'reality' | null>(null);
+  const planRef = useRef<HTMLDivElement>(null);
+  const realityRef = useRef<HTMLDivElement>(null);
+  const [planOverflows, setPlanOverflows] = useState(false);
+  const [realityOverflows, setRealityOverflows] = useState(false);
+
+  // Check if content overflows
+  useEffect(() => {
+    if (planRef.current) {
+      setPlanOverflows(planRef.current.scrollHeight > planRef.current.clientHeight);
+    }
+    if (realityRef.current) {
+      setRealityOverflows(realityRef.current.scrollHeight > realityRef.current.clientHeight);
+    }
+  }, [plan, reality]);
 
   const dateObj = new Date(date);
   const month = dateObj.toLocaleDateString('en-US', { month: 'short' });
@@ -160,9 +175,21 @@ export default function DayBlock({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-600 line-clamp-2">
+          <div
+            ref={planRef}
+            onClick={() => planOverflows && setExpandedSection(expandedSection === 'plan' ? null : 'plan')}
+            className={`
+              text-xs text-gray-600 whitespace-pre-wrap cursor-pointer
+              ${expandedSection === 'plan' ? 'max-h-40 overflow-y-auto' : 'line-clamp-2'}
+              ${planOverflows && expandedSection !== 'plan' ? 'hover:bg-indigo-50 rounded transition-colors' : ''}
+            `}
+            title={planOverflows ? 'Click to expand' : undefined}
+          >
             {plan || <span className="text-gray-400 italic">No plan yet</span>}
-          </p>
+            {planOverflows && expandedSection !== 'plan' && (
+              <span className="text-indigo-400 text-[10px] ml-1">...</span>
+            )}
+          </div>
         )}
       </div>
 
@@ -205,9 +232,21 @@ export default function DayBlock({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-600 line-clamp-2">
+          <div
+            ref={realityRef}
+            onClick={() => realityOverflows && setExpandedSection(expandedSection === 'reality' ? null : 'reality')}
+            className={`
+              text-xs text-gray-600 whitespace-pre-wrap cursor-pointer
+              ${expandedSection === 'reality' ? 'max-h-40 overflow-y-auto' : 'line-clamp-2'}
+              ${realityOverflows && expandedSection !== 'reality' ? 'hover:bg-emerald-50 rounded transition-colors' : ''}
+            `}
+            title={realityOverflows ? 'Click to expand' : undefined}
+          >
             {reality || <span className="text-gray-400 italic">No reality yet</span>}
-          </p>
+            {realityOverflows && expandedSection !== 'reality' && (
+              <span className="text-emerald-400 text-[10px] ml-1">...</span>
+            )}
+          </div>
         )}
       </div>
 
