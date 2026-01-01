@@ -224,12 +224,17 @@ export async function addMissingProperties(
 
 /**
  * Create a Canvas View database with relation to Task Calendar
+ *
+ * For Notion API 2025-09-03:
+ * - databases.create returns a database object
+ * - Relations need data_source_id instead of database_id
+ * - Use single_property relation type for simpler setup (avoids dual_property issues)
  */
 export async function createCanvasViewDatabase(
   apiKey: string,
   taskCalendarDbId: string,
   parentPageId?: string
-): Promise<{ success: boolean; databaseId?: string; error?: string }> {
+): Promise<{ success: boolean; databaseId?: string; dataSourceId?: string; error?: string }> {
   const notion = new Client({ auth: apiKey });
 
   try {
@@ -273,35 +278,76 @@ export async function createCanvasViewDatabase(
     }
 
     console.log(`[createCanvasViewDatabase] Creating database under page ${parentId}`);
+    console.log(`[createCanvasViewDatabase] Task Calendar DB ID: ${taskCalendarDbId}`);
 
-    // Create the Canvas View database with relation to Task Calendar
-    // Type assertion needed for Notion SDK
-    const response: any = await (notion.databases as any).create({
+    // Step 1: Create the database with basic properties first (without relation)
+    // This avoids issues with dual_property relation in API 2025-09-03
+    console.log('[createCanvasViewDatabase] Step 1: Creating database with basic properties...');
+    const createResponse: any = await (notion.databases as any).create({
       parent: { type: 'page_id', page_id: parentId },
       title: [{ type: 'text', text: { content: 'Canvas Views' } }],
       properties: {
         'View Name': { title: {} },
-        items: {
-          relation: {
-            database_id: taskCalendarDbId,
-            type: 'dual_property',
-            dual_property: {
-              synced_property_name: 'Canvas View',
-            },
-          },
-        },
-        // Viewport properties for saving zoom and pan position
         viewport_x: { rich_text: {} },
         viewport_y: { rich_text: {} },
         viewport_zoom: { rich_text: {} },
       },
     });
 
-    console.log(`[createCanvasViewDatabase] Created database: ${response.id}`);
+    const newDatabaseId = createResponse.id;
+    console.log(`[createCanvasViewDatabase] Created database: ${newDatabaseId}`);
+    console.log(`[createCanvasViewDatabase] Database properties:`, Object.keys(createResponse.properties || {}));
 
-    return { success: true, databaseId: response.id };
+    // Step 2: Add the relation property separately
+    // Use single_property type to avoid dual_property sync issues
+    console.log('[createCanvasViewDatabase] Step 2: Adding relation property...');
+    try {
+      const updateResponse: any = await (notion.databases as any).update({
+        database_id: newDatabaseId,
+        properties: {
+          items: {
+            relation: {
+              database_id: taskCalendarDbId,
+              type: 'single_property',
+              single_property: {},
+            },
+          },
+        },
+      });
+      console.log(`[createCanvasViewDatabase] Added relation property. Final properties:`, Object.keys(updateResponse.properties || {}));
+    } catch (relationError: any) {
+      console.error('[createCanvasViewDatabase] Failed to add relation property:', relationError.message);
+      // The database was created but relation failed - still usable for basic view saving
+      console.warn('[createCanvasViewDatabase] Database created without relation. Views will work but items won\'t be linked.');
+    }
+
+    // Step 3: Get the data_source_id for the new database
+    // In Notion API 2025-09-03, we need the data_source_id for queries
+    let dataSourceId = newDatabaseId; // Fallback to database_id
+    try {
+      const searchResponse = await notion.search({
+        filter: { property: 'object', value: 'data_source' },
+        page_size: 50,
+      });
+
+      const matchingDs = searchResponse.results.find((ds: any) =>
+        ds.parent?.database_id === newDatabaseId
+      );
+
+      if (matchingDs) {
+        dataSourceId = matchingDs.id;
+        console.log(`[createCanvasViewDatabase] Found data_source_id: ${dataSourceId}`);
+      } else {
+        console.log(`[createCanvasViewDatabase] No matching data_source found, using database_id: ${dataSourceId}`);
+      }
+    } catch (searchError: any) {
+      console.warn('[createCanvasViewDatabase] Could not find data_source_id:', searchError.message);
+    }
+
+    return { success: true, databaseId: newDatabaseId, dataSourceId };
   } catch (error: any) {
     console.error('[createCanvasViewDatabase] Error:', error.message);
+    console.error('[createCanvasViewDatabase] Full error:', JSON.stringify(error, null, 2));
     return { success: false, error: error.message };
   }
 }
