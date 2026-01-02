@@ -21,6 +21,7 @@ import NotionNode from './NotionNode';
 import PropertyEditorModal from './PropertyEditorModal';
 import CanvasViewSetupGuide from './CanvasViewSetupGuide';
 import AILayoutAssistant from './AILayoutAssistant';
+import { useAnimatedNodes } from '@/hooks/useAnimatedNodes';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: any = {
@@ -110,6 +111,9 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
   // AI Layout Assistant state
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [animationProgress, setAnimationProgress] = useState(0);
+  const { animateToLayout } = useAnimatedNodes<AppNode>();
 
   // Debug: Log dataSourceId on mount and when it changes
   useEffect(() => {
@@ -1859,6 +1863,62 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         <MiniMap />
       </ReactFlow>
 
+      {/* AI Layout Animation Progress Overlay */}
+      {isAnimating && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-purple-500/30 px-6 py-4 min-w-[300px]">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="relative w-8 h-8">
+                {/* Spinning transformer icon */}
+                <svg
+                  className="w-8 h-8 text-purple-400 animate-spin"
+                  style={{ animationDuration: '2s' }}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                {/* Glow effect */}
+                <div className="absolute inset-0 bg-purple-500/20 rounded-full blur-md animate-pulse" />
+              </div>
+              <div>
+                <p className="text-white font-semibold text-sm">Transforming Layout</p>
+                <p className="text-purple-300 text-xs">Moving items to new positions...</p>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 rounded-full transition-all duration-100"
+                style={{ width: `${animationProgress * 100}%` }}
+              />
+              {/* Shimmer effect */}
+              <div
+                className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
+                style={{
+                  transform: `translateX(${animationProgress * 100 - 100}%)`,
+                }}
+              />
+            </div>
+
+            {/* Progress percentage */}
+            <div className="flex justify-between mt-2">
+              <span className="text-xs text-gray-400">Progress</span>
+              <span className="text-xs text-purple-300 font-mono">
+                {Math.round(animationProgress * 100)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Canvas View Setup Guide Modal */}
       <CanvasViewSetupGuide
         isOpen={showSetupGuide}
@@ -1979,19 +2039,21 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         schema={schema}
         canvasSize={{ width: 3000, height: 2000 }}
         onApplyLayout={(layoutItems) => {
-          // Update node positions based on AI-generated layout
-          setNodes((currentNodes) =>
-            currentNodes.map((node) => {
-              const layoutItem = layoutItems.find((item) => item.id === node.id);
-              if (layoutItem) {
-                return {
-                  ...node,
-                  position: { x: layoutItem.x, y: layoutItem.y },
-                };
-              }
-              return node;
-            })
-          );
+          // Animate nodes to new positions with smooth "Transformer" effect
+          animateToLayout(nodes, layoutItems, setNodes, {
+            duration: 1200,
+            onStart: () => {
+              setIsAnimating(true);
+              setAnimationProgress(0);
+            },
+            onProgress: (progress) => {
+              setAnimationProgress(progress);
+            },
+            onComplete: () => {
+              setIsAnimating(false);
+              setAnimationProgress(0);
+            },
+          });
         }}
       />
     </div>
