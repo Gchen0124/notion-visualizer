@@ -57,12 +57,38 @@ interface SavedView {
     gradientStart?: string;
     gradientEnd?: string;
   }>;
+  // Local-only: preserves parent Sub-item order for drag ranking restore
+  subItemOrders?: Record<string, string[]>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AppNode = Node<any, string>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AppEdge = Edge<any>;
+
+const arraysEqual = (a: string[], b: string[]) => (
+  a.length === b.length && a.every((value, index) => value === b[index])
+);
+
+const mergeSubItemOrder = (savedOrder: string[] | undefined, currentOrder: string[]) => {
+  if (!savedOrder || savedOrder.length === 0) {
+    return [...currentOrder];
+  }
+
+  const currentSet = new Set(currentOrder);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  for (const id of savedOrder) {
+    if (currentSet.has(id) && !seen.has(id)) {
+      ordered.push(id);
+      seen.add(id);
+    }
+  }
+
+  const remaining = currentOrder.filter((id) => !seen.has(id));
+  return [...ordered, ...remaining];
+};
 
 function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasViewDbId, taskCalendarDbId, onShowSettings, defaultViewId, isDemoMode = false }: CanvasViewProps) {
   // Use ReactFlow hook to access viewport (requires ReactFlowProvider wrapper)
@@ -155,7 +181,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         if (result.success && result.views && result.views.length > 0) {
           console.log('[CanvasView] Loaded views from Notion:', result.views.length);
 
-          // Merge: Notion views take precedence, but preserve local itemPositions
+          // Merge: Notion views take precedence, but preserve local itemPositions/sub-item ranking
           const notionViews = result.views as SavedView[];
           const mergedViews = notionViews.map(notionView => {
             // Find matching local view by name or id
@@ -163,12 +189,24 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
               (notionView.id && lv.id === notionView.id) || lv.name === notionView.name
             );
 
-            // If local view has itemPositions (from failed Notion save), preserve them
-            if (localView?.itemPositions && localView.itemPositions.length > 0) {
-              console.log(`[CanvasView] Preserving local itemPositions for view "${notionView.name}"`);
-              return { ...notionView, itemPositions: localView.itemPositions };
+            if (!localView) {
+              return notionView;
             }
-            return notionView;
+
+            const mergedView: SavedView = { ...notionView };
+
+            // If local view has itemPositions (from failed Notion save), preserve them
+            if (localView.itemPositions && localView.itemPositions.length > 0) {
+              console.log(`[CanvasView] Preserving local itemPositions for view "${notionView.name}"`);
+              mergedView.itemPositions = localView.itemPositions;
+            }
+
+            if (localView.subItemOrders && Object.keys(localView.subItemOrders).length > 0) {
+              console.log(`[CanvasView] Preserving local sub-item order for view "${notionView.name}"`);
+              mergedView.subItemOrders = localView.subItemOrders;
+            }
+
+            return mergedView;
           });
 
           // Also add any local-only views (not in Notion)
@@ -183,7 +221,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
           setSavedViews(allViews);
           setViewsSource('notion');
 
-          // Update localStorage with merged views (preserving itemPositions)
+          // Update localStorage with merged views (preserving local fallback metadata)
           localStorage.setItem(localStorageKey, JSON.stringify(allViews));
           return;
         }
@@ -568,8 +606,8 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
           onDeleteSubItem: async (subItemId: string) => {
             await deleteSubItem(subItemId, item.id);
           },
-          onReorderSubItems: async (subItemId: string, direction: 'up' | 'down') => {
-            await reorderSubItem(item.id, subItemId, direction);
+          onReorderSubItems: async (orderedSubItemIds: string[]) => {
+            await reorderSubItems(item.id, orderedSubItemIds);
           },
         },
       };
@@ -862,11 +900,10 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     }
   };
 
-  // Reorder sub-items using parent's Sub-item array order
-  const reorderSubItem = useCallback(async (parentId: string, subItemId: string, direction: 'up' | 'down') => {
-    console.log('[CanvasView] Reordering sub-item:', subItemId, 'direction:', direction);
+  // Reorder sub-items using drag-and-drop order from the node
+  const reorderSubItems = useCallback(async (parentId: string, orderedSubItemIds: string[]) => {
+    console.log('[CanvasView] Reordering sub-items for parent:', parentId, orderedSubItemIds);
 
-    // Use setNodes with functional form to get current state
     setNodes((currentNodes) => {
       const parentNode = currentNodes.find((n) => n.id === parentId);
       if (!parentNode) {
@@ -874,40 +911,36 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         return currentNodes;
       }
 
-      // Get current Sub-item array from node data
       const currentSubItemIds = Array.isArray(parentNode.data.properties['Sub-item'])
         ? [...parentNode.data.properties['Sub-item']]
         : [];
 
-      console.log('[CanvasView] Current Sub-item order:', currentSubItemIds);
-
-      // Find the index of the sub-item being moved
-      const currentIndex = currentSubItemIds.indexOf(subItemId);
-      if (currentIndex === -1) {
-        console.error('[CanvasView] Sub-item not found in parent Sub-item array:', subItemId);
+      if (currentSubItemIds.length === 0) {
         return currentNodes;
       }
 
-      // Calculate new index
-      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      if (newIndex < 0 || newIndex >= currentSubItemIds.length) {
-        console.log('[CanvasView] Cannot move further:', direction);
+      const currentSet = new Set(currentSubItemIds);
+      const seen = new Set<string>();
+      const sanitizedOrder: string[] = [];
+
+      for (const id of orderedSubItemIds) {
+        if (currentSet.has(id) && !seen.has(id)) {
+          sanitizedOrder.push(id);
+          seen.add(id);
+        }
+      }
+
+      const missingIds = currentSubItemIds.filter((id) => !seen.has(id));
+      const newSubItemIds = [...sanitizedOrder, ...missingIds];
+
+      if (arraysEqual(newSubItemIds, currentSubItemIds)) {
         return currentNodes;
       }
 
-      // Swap positions in the array
-      const newSubItemIds = [...currentSubItemIds];
-      [newSubItemIds[currentIndex], newSubItemIds[newIndex]] =
-        [newSubItemIds[newIndex], newSubItemIds[currentIndex]];
-
-      console.log('[CanvasView] New Sub-item order:', newSubItemIds);
-
-      // Update Notion in background (don't await)
       updateItemProperty(parentId, 'Sub-item', newSubItemIds)
         .then(() => console.log('[CanvasView] Reorder saved to Notion'))
         .catch((err) => console.error('[CanvasView] Failed to save reorder:', err));
 
-      // Update items state
       setItems((prevItems) =>
         prevItems.map((item) =>
           item.id === parentId
@@ -916,7 +949,6 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         )
       );
 
-      // Return updated nodes
       return currentNodes.map((node) => {
         if (node.id === parentId) {
           return {
@@ -930,7 +962,7 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         return node;
       });
     });
-  }, [setNodes, setItems]);
+  }, [setNodes, setItems, updateItemProperty]);
 
   // Patch callbacks for nodes that need it (separate effect to avoid stale closures)
   // This effect runs after all callback functions are defined
@@ -992,8 +1024,8 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
             onDeleteSubItem: async (subItemId: string) => {
               await deleteSubItem(subItemId, item.id);
             },
-            onReorderSubItems: async (subItemId: string, direction: 'up' | 'down') => {
-              await reorderSubItem(item.id, subItemId, direction);
+            onReorderSubItems: async (orderedSubItemIds: string[]) => {
+              await reorderSubItems(item.id, orderedSubItemIds);
             },
           },
         };
@@ -1284,6 +1316,24 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     if (!viewName) return;
 
     const currentItemIds = nodes.map(n => n.id);
+    const subItemOrders = nodes.reduce<Record<string, string[]>>((acc, node) => {
+      const nodeSubItems = Array.isArray(node.data?.properties?.['Sub-item'])
+        ? node.data.properties['Sub-item']
+        : [];
+      if (nodeSubItems.length > 0) {
+        acc[node.id] = [...nodeSubItems];
+        return acc;
+      }
+
+      const fallbackItem = items.find((item) => item.id === node.id);
+      const fallbackSubItems = Array.isArray(fallbackItem?.properties?.['Sub-item'])
+        ? fallbackItem.properties['Sub-item']
+        : [];
+      if (fallbackSubItems.length > 0) {
+        acc[node.id] = [...fallbackSubItems];
+      }
+      return acc;
+    }, {});
 
     // Capture current viewport (zoom and pan position)
     const currentViewport = reactFlowInstance.getViewport();
@@ -1323,7 +1373,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
           gradientStart: node.data.gradientColors?.start,
           gradientEnd: node.data.gradientColors?.end,
         }));
-        const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport, itemPositions: localItemPositions };
+        const newView: SavedView = {
+          name: viewName,
+          itemIds: currentItemIds,
+          viewport,
+          itemPositions: localItemPositions,
+          subItemOrders,
+        };
         const updatedViews = existingView
           ? savedViews.map(v => v.name === viewName ? newView : v)
           : [...savedViews, newView];
@@ -1362,7 +1418,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         console.log('[CanvasView] Saved view to Notion:', viewName, 'with', itemPositions.length, 'item positions and viewport:', viewport);
 
         // Update local state with Notion view ID and viewport
-        const newView: SavedView = { id: result.viewId, name: viewName, itemIds: currentItemIds, viewport };
+        const newView: SavedView = {
+          id: result.viewId,
+          name: viewName,
+          itemIds: currentItemIds,
+          viewport,
+          subItemOrders,
+        };
 
         let updatedViews;
         if (existingView) {
@@ -1391,7 +1453,13 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         gradientStart: node.data.gradientColors?.start,
         gradientEnd: node.data.gradientColors?.end,
       }));
-      const newView: SavedView = { name: viewName, itemIds: currentItemIds, viewport, itemPositions: localItemPositions };
+      const newView: SavedView = {
+        name: viewName,
+        itemIds: currentItemIds,
+        viewport,
+        itemPositions: localItemPositions,
+        subItemOrders,
+      };
       const updatedViews = existingView
         ? savedViews.map(v => v.name === viewName ? newView : v)
         : [...savedViews, newView];
@@ -1430,6 +1498,30 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
     setEdges([]);
     setShowLoadView(false);
 
+    // Apply saved local ranking to items state so follow-up edits keep the same order
+    if (view.subItemOrders && Object.keys(view.subItemOrders).length > 0) {
+      setItems((currentItems) =>
+        currentItems.map((item) => {
+          const savedOrder = view.subItemOrders?.[item.id];
+          if (!savedOrder) return item;
+
+          const currentOrder = Array.isArray(item.properties['Sub-item'])
+            ? item.properties['Sub-item']
+            : [];
+          const mergedOrder = mergeSubItemOrder(savedOrder, currentOrder);
+
+          if (arraysEqual(mergedOrder, currentOrder)) {
+            return item;
+          }
+
+          return {
+            ...item,
+            properties: { ...item.properties, 'Sub-item': mergedOrder },
+          };
+        })
+      );
+    }
+
     // Track if we should restore viewport from this view
     let viewportToRestore: { x: number; y: number; zoom: number } | null = null;
 
@@ -1455,10 +1547,21 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
           // Add items to canvas with their saved positions
           viewData.items.forEach((notionItem: any) => {
+            const currentSubItems = Array.isArray(notionItem.properties?.['Sub-item'])
+              ? notionItem.properties['Sub-item']
+              : [];
+            const mergedSubItems = mergeSubItemOrder(
+              view.subItemOrders?.[notionItem.id],
+              currentSubItems
+            );
+
             // Create an item object that matches the expected format
             const item = {
               id: notionItem.id,
-              properties: notionItem.properties,
+              properties: {
+                ...notionItem.properties,
+                'Sub-item': mergedSubItems,
+              },
               url: '',
             };
 
@@ -1502,28 +1605,36 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       });
     }
 
-    view.itemIds.forEach((itemId, index) => {
+    view.itemIds.forEach((itemId) => {
       const item = items.find(i => i.id === itemId);
       if (item) {
-        // Check if we have saved local position
+        const currentSubItems = Array.isArray(item.properties['Sub-item'])
+          ? item.properties['Sub-item']
+          : [];
+        const mergedSubItems = mergeSubItemOrder(
+          view.subItemOrders?.[itemId],
+          currentSubItems
+        );
+
         const savedPos = positionMap.get(itemId);
-        if (savedPos) {
-          // Inject position into item properties for addItemToCanvas to use
-          const itemWithPosition = {
-            ...item,
-            properties: {
-              ...item.properties,
-              canvas_x: savedPos.x,
-              canvas_y: savedPos.y,
-              canvas_color: savedPos.color || item.properties.canvas_color,
-              canvas_gradient_start: savedPos.gradientStart || item.properties.canvas_gradient_start,
-              canvas_gradient_end: savedPos.gradientEnd || item.properties.canvas_gradient_end,
-            }
-          };
-          addItemToCanvas(itemWithPosition);
-        } else {
-          addItemToCanvas(item);
-        }
+        const itemWithViewState = {
+          ...item,
+          properties: {
+            ...item.properties,
+            ...(savedPos
+              ? {
+                  canvas_x: savedPos.x,
+                  canvas_y: savedPos.y,
+                  canvas_color: savedPos.color || item.properties.canvas_color,
+                  canvas_gradient_start: savedPos.gradientStart || item.properties.canvas_gradient_start,
+                  canvas_gradient_end: savedPos.gradientEnd || item.properties.canvas_gradient_end,
+                }
+              : {}),
+            ...(view.subItemOrders?.[itemId] ? { 'Sub-item': mergedSubItems } : {}),
+          }
+        };
+
+        addItemToCanvas(itemWithViewState);
       }
     });
 
@@ -1538,7 +1649,8 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
       }, 100);
     }
 
-    console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items and ${positionMap.size} positions (local fallback)`);
+    const rankingCount = view.subItemOrders ? Object.keys(view.subItemOrders).length : 0;
+    console.log(`[CanvasView] Loaded view "${view.name}" with ${view.itemIds.length} items, ${positionMap.size} positions, and ${rankingCount} ranking snapshots (local fallback)`);
   };
 
   // Delete a saved view - delete from Notion first, then localStorage

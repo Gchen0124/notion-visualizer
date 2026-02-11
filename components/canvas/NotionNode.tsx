@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useRef } from 'react';
+import { memo, useState, useEffect, useRef, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 
@@ -20,7 +20,7 @@ interface NotionNodeData {
   onOpenPropertyEditor?: () => void;
   onAddSubItem?: () => void;
   onDeleteSubItem?: (subItemId: string) => void;
-  onReorderSubItems?: (subItemId: string, direction: 'up' | 'down') => void;
+  onReorderSubItems?: (orderedSubItemIds: string[]) => void;
   onToggleImage?: () => void;
   hasChildren?: boolean;
   childrenVisible?: boolean;
@@ -33,6 +33,8 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
   const [title, setTitle] = useState(data.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
+  const [draggedSubItemId, setDraggedSubItemId] = useState<string | null>(null);
+  const [dragOverSubItem, setDragOverSubItem] = useState<{ id: string; position: 'above' | 'below' } | null>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const colorButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -113,6 +115,76 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
     ? canvasVisual[0]?.url
     : null;
   const hasImage = !!imageUrl;
+
+  const reorderSubItemsByDrag = (draggedId: string, targetId: string, position: 'above' | 'below') => {
+    if (!data.onReorderSubItems || draggedId === targetId) return;
+
+    const currentOrder = subItems.map((subItem) => subItem.id);
+    const sourceIndex = currentOrder.indexOf(draggedId);
+    const targetIndex = currentOrder.indexOf(targetId);
+
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    let insertIndex = targetIndex + (position === 'below' ? 1 : 0);
+    const nextOrder = [...currentOrder];
+    nextOrder.splice(sourceIndex, 1);
+
+    if (sourceIndex < insertIndex) {
+      insertIndex -= 1;
+    }
+
+    nextOrder.splice(insertIndex, 0, draggedId);
+
+    const orderChanged = nextOrder.some((id, index) => id !== currentOrder[index]);
+    if (orderChanged) {
+      data.onReorderSubItems(nextOrder);
+    }
+  };
+
+  const handleSubItemDragStart = (event: DragEvent<HTMLDivElement>, subItemId: string) => {
+    event.stopPropagation();
+    setDraggedSubItemId(subItemId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', subItemId);
+  };
+
+  const handleSubItemDragOver = (event: DragEvent<HTMLDivElement>, subItemId: string) => {
+    const activeDraggedId = draggedSubItemId || event.dataTransfer.getData('text/plain');
+    if (!activeDraggedId || activeDraggedId === subItemId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position: 'above' | 'below' =
+      event.clientY - rect.top > rect.height / 2 ? 'below' : 'above';
+
+    if (dragOverSubItem?.id !== subItemId || dragOverSubItem.position !== position) {
+      setDragOverSubItem({ id: subItemId, position });
+    }
+
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleSubItemDrop = (event: DragEvent<HTMLDivElement>, subItemId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const droppedId = draggedSubItemId || event.dataTransfer.getData('text/plain');
+    if (droppedId) {
+      const dropPosition =
+        dragOverSubItem?.id === subItemId ? dragOverSubItem.position : 'below';
+      reorderSubItemsByDrag(droppedId, subItemId, dropPosition);
+    }
+
+    setDraggedSubItemId(null);
+    setDragOverSubItem(null);
+  };
+
+  const handleSubItemDragEnd = () => {
+    setDraggedSubItemId(null);
+    setDragOverSubItem(null);
+  };
 
   return (
     <div className="relative w-full h-full">
@@ -424,6 +496,9 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
                 <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
                   Sub-items {subItems && subItems.length > 0 && `(${subItems.length})`}
                 </p>
+                {data.onReorderSubItems && subItems.length > 1 && (
+                  <p className="text-[10px] text-white/70">Drag to reorder</p>
+                )}
                 {data.onAddSubItem && (
                   <button
                     onClick={(e) => {
@@ -439,43 +514,32 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
               </div>
 
               {subItems && subItems.length > 0 ? (
-              subItems.map((subItem, index) => (
+              subItems.map((subItem) => (
                 <div
                   key={subItem.id}
-                  className="group px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md"
+                  draggable={!!data.onReorderSubItems}
+                  onDragStart={(event) => handleSubItemDragStart(event, subItem.id)}
+                  onDragOver={(event) => handleSubItemDragOver(event, subItem.id)}
+                  onDrop={(event) => handleSubItemDrop(event, subItem.id)}
+                  onDragEnd={handleSubItemDragEnd}
+                  className={`group relative px-3 py-2 rounded-lg bg-white/60 dark:bg-black/40 backdrop-blur-sm border border-white/40 text-xs transition-all hover:bg-white/80 dark:hover:bg-black/50 hover:shadow-md nodrag ${
+                    data.onReorderSubItems ? 'cursor-grab active:cursor-grabbing' : ''
+                  } ${draggedSubItemId === subItem.id ? 'opacity-60' : ''}`}
                   style={{
                     borderLeft: `3px solid ${subItem.color || '#6b7280'}`,
                   }}
                 >
+                  {dragOverSubItem?.id === subItem.id && dragOverSubItem.position === 'above' && (
+                    <div className="absolute left-2 right-2 top-0 h-0.5 bg-cyan-300 rounded-full" />
+                  )}
                   <div className="flex items-center justify-between gap-2">
-                    <span className="flex-1 text-white">{subItem.title}</span>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {data.onReorderSubItems && (
+                        <span className="text-white/70 select-none">⋮⋮</span>
+                      )}
+                      <span className="flex-1 text-white truncate">{subItem.title}</span>
+                    </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Move up button */}
-                      {index > 0 && data.onReorderSubItems && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            data.onReorderSubItems && data.onReorderSubItems(subItem.id, 'up');
-                          }}
-                          className="p-1 hover:bg-white/50 dark:hover:bg-black/30 rounded transition-colors"
-                          title="Move up"
-                        >
-                          ⬆️
-                        </button>
-                      )}
-                      {/* Move down button */}
-                      {index < subItems.length - 1 && data.onReorderSubItems && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            data.onReorderSubItems && data.onReorderSubItems(subItem.id, 'down');
-                          }}
-                          className="p-1 hover:bg-white/50 dark:hover:bg-black/30 rounded transition-colors"
-                          title="Move down"
-                        >
-                          ⬇️
-                        </button>
-                      )}
                       {/* Delete button */}
                       {data.onDeleteSubItem && (
                         <button
@@ -493,6 +557,9 @@ function NotionNode({ data, selected }: NodeProps<any> & { data: NotionNodeData 
                       )}
                     </div>
                   </div>
+                  {dragOverSubItem?.id === subItem.id && dragOverSubItem.position === 'below' && (
+                    <div className="absolute left-2 right-2 bottom-0 h-0.5 bg-cyan-300 rounded-full" />
+                  )}
                 </div>
               ))
             ) : (
