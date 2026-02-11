@@ -1249,15 +1249,52 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
 
   // Helper function to create Canvas View database if it doesn't exist
   const ensureCanvasViewDatabase = async (): Promise<string | null> => {
-    // If we already have a canvas view DB, return it
-    if (canvasViewDbId) {
-      return canvasViewDbId;
-    }
-
     // If we don't have the task calendar DB ID, can't create Canvas View DB
     if (!taskCalendarDbId) {
       console.warn('[CanvasView] No taskCalendarDbId available to create Canvas View database');
-      return null;
+      return canvasViewDbId || null;
+    }
+
+    // Resolve canonical/working Canvas View DB from the Task Calendar relation first.
+    // This prevents stale localStorage IDs from breaking Notion saves.
+    try {
+      const checkResponse = await fetch('/api/databases/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          databaseId: taskCalendarDbId,
+          dataSourceId,
+          checkOnly: true,
+        }),
+      });
+      const checkResult = await checkResponse.json();
+
+      if (checkResult.success && checkResult.canvasViewDbId) {
+        if (canvasViewDbId !== checkResult.canvasViewDbId) {
+          console.log('[CanvasView] Using resolved Canvas View database from relation:', checkResult.canvasViewDbId);
+          setCanvasViewDbId(checkResult.canvasViewDbId);
+
+          const configStr = localStorage.getItem('notion_visualizer_config');
+          if (configStr) {
+            try {
+              const config = JSON.parse(configStr);
+              config.databases.canvasViewDbId = checkResult.canvasViewDbId;
+              localStorage.setItem('notion_visualizer_config', JSON.stringify(config));
+            } catch (e) {
+              console.error('[CanvasView] Failed to update config with resolved canvasViewDbId:', e);
+            }
+          }
+        }
+        return checkResult.canvasViewDbId;
+      }
+    } catch (e) {
+      console.warn('[CanvasView] Failed to resolve Canvas View DB via checkOnly:', e);
+    }
+
+    // If we already have a configured ID and relation lookup failed, fall back to it.
+    if (canvasViewDbId) {
+      return canvasViewDbId;
     }
 
     setIsCreatingCanvasViewDb(true);

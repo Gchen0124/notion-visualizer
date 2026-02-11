@@ -8,10 +8,6 @@ const DEMO_CANVAS_VIEW_DB = process.env.DEMO_CANVAS_VIEW_DB || '2d7d6707-fb13-81
 // Demo API key for detecting demo mode
 const DEMO_API_KEY = process.env.DEMO_NOTION_API_KEY;
 
-// Relation property names in Task Calendar databases (on Task Calendar -> Canvas View)
-const DEFAULT_CANVAS_VIEW_RELATION = 'Canvas View';
-const DEMO_CANVAS_VIEW_RELATION = 'Canvas View (sample)';
-
 // Relation property names in Canvas View databases (on Canvas View -> Task Calendar items)
 const DEFAULT_ITEMS_RELATION = 'items';
 const DEMO_ITEMS_RELATION = '✅ Task Calendar (sample)';
@@ -23,14 +19,6 @@ function getCanvasViewDbId(apiKey: string): string {
     return DEMO_CANVAS_VIEW_DB;
   }
   return DEFAULT_CANVAS_VIEW_DB;
-}
-
-// Helper to get the correct relation property name (Task Calendar -> Canvas View)
-function getCanvasViewRelationName(apiKey: string): string {
-  if (DEMO_API_KEY && apiKey === DEMO_API_KEY) {
-    return DEMO_CANVAS_VIEW_RELATION;
-  }
-  return DEFAULT_CANVAS_VIEW_RELATION;
 }
 
 // Helper to get the correct items relation property name (Canvas View -> Task Calendar items)
@@ -167,16 +155,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Determine which canvas view DB and relation property name to use
+    // Determine which canvas view DB and relation property names to use
     const canvasViewDbId = canvasViewDb || getCanvasViewDbId(apiKey);
-    const canvasViewRelationName = getCanvasViewRelationName(apiKey);
+    const itemsRelationName = getItemsRelationName(apiKey);
 
     const notion = new Client({
       auth: apiKey,
       notionVersion: '2025-09-03',
     });
 
-    const result = await saveCanvasView(notion, name, itemIds, canvasViewDbId, canvasViewRelationName, existingViewId, itemPositions, viewport);
+    const result = await saveCanvasView(
+      notion,
+      name,
+      itemIds,
+      canvasViewDbId,
+      itemsRelationName,
+      existingViewId,
+      itemPositions,
+      viewport
+    );
 
     if (result.success) {
       return NextResponse.json({
@@ -274,6 +271,42 @@ interface CanvasViewport {
   zoom: number;
 }
 
+function getTitlePropertyNameFromProperties(
+  properties: Record<string, any> | undefined,
+  preferredName = 'View Name'
+): string {
+  if (properties?.[preferredName]?.type === 'title') {
+    return preferredName;
+  }
+
+  const titleEntry = Object.entries(properties || {}).find(
+    ([, prop]) => (prop as any)?.type === 'title'
+  );
+
+  return titleEntry?.[0] || preferredName;
+}
+
+function getTitleFromPage(page: any, preferredName = 'View Name'): string {
+  const properties = page?.properties || {};
+  const titlePropName = getTitlePropertyNameFromProperties(properties, preferredName);
+  const titleProp = properties[titlePropName];
+  if (titleProp?.type !== 'title') return '';
+  return titleProp.title?.map((t: any) => t.plain_text).join('') || '';
+}
+
+function setRichTextPropertyIfExists(
+  targetSchema: Record<string, any> | undefined,
+  outputProperties: Record<string, any>,
+  propertyName: string,
+  value: string
+) {
+  if (targetSchema?.[propertyName]?.type === 'rich_text') {
+    outputProperties[propertyName] = {
+      rich_text: [{ text: { content: value } }],
+    };
+  }
+}
+
 // Fetch all canvas views
 async function getCanvasViews(notion: Client, canvasViewDbId: string, itemsRelationName: string): Promise<CanvasViewEntry[]> {
   try {
@@ -294,7 +327,7 @@ async function getCanvasViews(notion: Client, canvasViewDbId: string, itemsRelat
     console.log(`Using items relation property: "${effectiveItemsRelationName}"`);
 
     const views: CanvasViewEntry[] = response.results.map((page: any) => {
-      const name = page.properties['View Name']?.title?.[0]?.plain_text || '';
+      const name = getTitleFromPage(page, 'View Name');
       // Use dynamic property name for items relation
       const itemIds = (page.properties[effectiveItemsRelationName]?.relation || []).map((r: any) => r.id);
 
@@ -369,76 +402,56 @@ function resolveItemsRelationNameFromProperties(
   return preferredName;
 }
 
-async function resolveCanvasViewRelationNameOnTaskItem(
-  notion: Client,
-  itemId: string,
-  preferredName: string
-): Promise<string> {
-  try {
-    const itemPage: any = await notion.pages.retrieve({ page_id: itemId });
-    const properties = itemPage.properties || {};
-
-    if (properties[preferredName]?.type === 'relation') {
-      return preferredName;
-    }
-
-    const relationNames = Object.entries(properties)
-      .filter(([, prop]) => (prop as any)?.type === 'relation')
-      .map(([name]) => name);
-
-    if (relationNames.length === 0) return preferredName;
-
-    const canvasCandidate = relationNames.find((name) => name.toLowerCase().includes('canvas'));
-    if (canvasCandidate) return canvasCandidate;
-
-    const viewCandidate = relationNames.find((name) => name.toLowerCase().includes('view'));
-    if (viewCandidate) return viewCandidate;
-
-    if (relationNames.length === 1) return relationNames[0];
-    return preferredName;
-  } catch (error) {
-    console.warn('[saveCanvasView] Could not detect relation property on task item, using fallback:', preferredName);
-    return preferredName;
-  }
-}
-
 // Save a canvas view
 async function saveCanvasView(
   notion: Client,
   name: string,
   itemIds: string[],
   canvasViewDbId: string,
-  canvasViewRelationName: string,
+  preferredItemsRelationName: string,
   existingViewId?: string,
   itemPositions?: CanvasItemPosition[],
   viewport?: CanvasViewport
 ): Promise<{ success: boolean; viewId?: string; error?: string }> {
   try {
     let viewId: string;
+    let viewPropertySchema: Record<string, any> = {};
 
-    // Build view properties including viewport if provided
+    const uniqueItemIds = Array.from(new Set(itemIds.filter(Boolean)));
+
+    const resolveViewProperties = async () => {
+      try {
+        const ds: any = await (notion as any).dataSources.retrieve({
+          data_source_id: canvasViewDbId,
+        });
+        return ds.properties || {};
+      } catch {
+        const db: any = await notion.databases.retrieve({
+          database_id: canvasViewDbId,
+        });
+        return db.properties || {};
+      }
+    };
+
+    viewPropertySchema = await resolveViewProperties();
+    const viewTitlePropName = getTitlePropertyNameFromProperties(viewPropertySchema, 'View Name');
+
+    // Build view properties (title + viewport when available in schema)
     const viewProperties: any = {
-      'View Name': {
+      [viewTitlePropName]: {
         title: [{ text: { content: name } }],
       },
     };
 
-    // Add viewport properties if provided
+    // Add viewport properties only when those rich_text fields exist
     if (viewport) {
-      viewProperties.viewport_x = {
-        rich_text: [{ text: { content: String(viewport.x) } }],
-      };
-      viewProperties.viewport_y = {
-        rich_text: [{ text: { content: String(viewport.y) } }],
-      };
-      viewProperties.viewport_zoom = {
-        rich_text: [{ text: { content: String(viewport.zoom) } }],
-      };
+      setRichTextPropertyIfExists(viewPropertySchema, viewProperties, 'viewport_x', String(viewport.x));
+      setRichTextPropertyIfExists(viewPropertySchema, viewProperties, 'viewport_y', String(viewport.y));
+      setRichTextPropertyIfExists(viewPropertySchema, viewProperties, 'viewport_zoom', String(viewport.zoom));
       console.log(`Saving viewport: x=${viewport.x}, y=${viewport.y}, zoom=${viewport.zoom}`);
     }
 
     // Step 1: Create or update the Canvas View page
-    // The 'items' relation is auto-populated via bidirectional sync when we update Task Calendar items
     if (existingViewId) {
       // Update existing view
       await (notion as any).pages.update({
@@ -462,54 +475,72 @@ async function saveCanvasView(
       console.log(`Created canvas view: ${name} (id: ${viewId})`);
     }
 
-    // Step 2: Update each Task Calendar item with position and Canvas View relation
-    // This will auto-populate the 'items' property in Canvas View via bidirectional relation
-    if (itemPositions && itemPositions.length > 0) {
-      const effectiveCanvasViewRelationName = await resolveCanvasViewRelationNameOnTaskItem(
-        notion,
-        itemPositions[0].id,
-        canvasViewRelationName
-      );
+    // Step 2: Link the Canvas View page to Task Calendar items via relation on the view DB side.
+    // This works for both single_property and dual_property relations.
+    const viewPage: any = await notion.pages.retrieve({ page_id: viewId });
+    const effectiveItemsRelationName = resolveItemsRelationNameFromProperties(
+      viewPage.properties,
+      preferredItemsRelationName
+    );
 
-      console.log(`[saveCanvasView] Using Task Calendar relation property: "${effectiveCanvasViewRelationName}"`);
-      console.log(`Saving positions for ${itemPositions.length} items and linking to view...`);
+    if (!viewPage.properties?.[effectiveItemsRelationName] || viewPage.properties[effectiveItemsRelationName].type !== 'relation') {
+      return {
+        success: false,
+        error: `Canvas View database is missing a relation property to items (expected "${preferredItemsRelationName}" or equivalent).`,
+      };
+    }
+
+    await (notion as any).pages.update({
+      page_id: viewId,
+      properties: {
+        [effectiveItemsRelationName]: {
+          relation: uniqueItemIds.map((id) => ({ id })),
+        },
+      },
+    });
+    console.log(`[saveCanvasView] Linked ${uniqueItemIds.length} items via "${effectiveItemsRelationName}"`);
+
+    // Step 3: Save per-item canvas positions on Task Calendar items.
+    if (itemPositions && itemPositions.length > 0) {
+      const firstItemPage: any = await notion.pages.retrieve({
+        page_id: itemPositions[0].id,
+      });
+      const taskPropertySchema = firstItemPage.properties || {};
+      const hasCanvasX = taskPropertySchema.canvas_x?.type === 'rich_text';
+      const hasCanvasY = taskPropertySchema.canvas_y?.type === 'rich_text';
+
+      if (!hasCanvasX || !hasCanvasY) {
+        return {
+          success: false,
+          error: 'Task database is missing rich_text properties "canvas_x" and/or "canvas_y". Run database setup to add them.',
+        };
+      }
+
+      console.log(`Saving positions for ${itemPositions.length} items...`);
 
       const updatePromises = itemPositions.map(async (item) => {
         try {
-          const properties: any = {
-            canvas_x: {
-              rich_text: [{ text: { content: String(item.x) } }],
-            },
-            canvas_y: {
-              rich_text: [{ text: { content: String(item.y) } }],
-            },
-            // Setting Canvas View on Task Calendar will auto-populate 'items' on Canvas View
-            // Use dynamic property name based on demo vs personal database
-            [effectiveCanvasViewRelationName]: {
-              relation: [{ id: viewId }],
-            },
-          };
+          const properties: any = {};
+          setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_x', String(item.x));
+          setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_y', String(item.y));
 
           // Add optional properties if provided
           if (item.width !== undefined) {
-            properties.canvas_width = {
-              rich_text: [{ text: { content: String(item.width) } }],
-            };
+            setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_width', String(item.width));
+            setRichTextPropertyIfExists(taskPropertySchema, properties, 'item_width', String(item.width));
           }
           if (item.color) {
-            properties.canvas_color = {
-              rich_text: [{ text: { content: item.color } }],
-            };
+            setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_color', item.color);
           }
           if (item.gradientStart) {
-            properties.canvas_gradient_start = {
-              rich_text: [{ text: { content: item.gradientStart } }],
-            };
+            setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_gradient_start', item.gradientStart);
           }
           if (item.gradientEnd) {
-            properties.canvas_gradient_end = {
-              rich_text: [{ text: { content: item.gradientEnd } }],
-            };
+            setRichTextPropertyIfExists(taskPropertySchema, properties, 'canvas_gradient_end', item.gradientEnd);
+          }
+          if (Object.keys(properties).length === 0) {
+            console.warn(`[saveCanvasView] No position properties available on item ${item.id}, skipping`);
+            return { success: false as const, itemId: item.id, error: 'no_position_properties' };
           }
 
           await (notion as any).pages.update({
@@ -531,7 +562,7 @@ async function saveCanvasView(
       if (failedUpdates.length === itemPositions.length) {
         return {
           success: false,
-          error: `Failed to save positions for all ${itemPositions.length} items. Check Canvas View relation/property setup.`,
+          error: `Failed to save positions for all ${itemPositions.length} items. Check canvas_* properties on Task database.`,
         };
       }
 
@@ -585,7 +616,7 @@ async function getCanvasViewWithItems(
       page_id: viewId,
     });
 
-    const viewName = viewPage.properties['View Name']?.title?.[0]?.plain_text || '';
+    const viewName = getTitleFromPage(viewPage, 'View Name');
     const effectiveItemsRelationName = resolveItemsRelationNameFromProperties(
       viewPage.properties,
       itemsRelationName
@@ -629,9 +660,8 @@ async function getCanvasViewWithItems(
           page_id: itemId,
         });
 
-        // Extract title (Task Plan is the title property)
-        const titleProp = page.properties['Task Plan'];
-        const title = titleProp?.title?.[0]?.plain_text || 'Untitled';
+        // Extract title from whichever title property exists.
+        const title = getTitleFromPage(page, 'Task Plan') || 'Untitled';
 
         // Extract canvas position properties
         const canvas_x = parseFloat(getTextProperty(page, 'canvas_x')) || null;
