@@ -4,6 +4,7 @@ import {
   getDatabaseInfo,
   validateDatabaseSchema,
   createCanvasViewDatabase,
+  findCanvasViewDatabaseId,
 } from '@/lib/database-setup';
 
 /**
@@ -49,59 +50,7 @@ export async function POST(request: NextRequest) {
     // Check only mode - just verify if Canvas View database exists
     if (checkOnly) {
       const dbInfo = await getDatabaseInfo(apiKey, databaseId, dataSourceId);
-
-      // Check if main database has Canvas View relation and get the related database ID
-      let canvasViewDbId: string | null = null;
-      for (const [propName, prop] of Object.entries(dbInfo.properties)) {
-        if (
-          prop.type === 'relation' &&
-          propName.toLowerCase().includes('canvas')
-        ) {
-          // Try to get the related database ID from the relation property
-          // For Notion API 2025-09-03, we need the data_source_id
-          try {
-            const { Client } = await import('@notionhq/client');
-            const notion = new Client({ auth: apiKey, notionVersion: '2025-09-03' });
-            const fullDb: any = await notion.databases.retrieve({ database_id: databaseId });
-            const relationProp = fullDb.properties[propName];
-
-            // The relation property has database_id - we need to find the corresponding data_source_id
-            if (relationProp?.relation?.database_id) {
-              const relatedDbId = relationProp.relation.database_id;
-              console.log(`[API /databases/setup] Found Canvas View DB ID from relation: ${relatedDbId}`);
-
-              // Try to get the data_source_id by searching for the database
-              try {
-                const searchResponse = await notion.search({
-                  filter: { property: 'object', value: 'data_source' },
-                  page_size: 100,
-                });
-
-                // Find the data source that matches this database_id
-                const matchingDs = searchResponse.results.find((ds: any) =>
-                  ds.parent?.database_id === relatedDbId || ds.id === relatedDbId
-                );
-
-                if (matchingDs) {
-                  canvasViewDbId = matchingDs.id; // Use data_source_id
-                  console.log(`[API /databases/setup] Found matching data_source_id: ${canvasViewDbId}`);
-                } else {
-                  // Fallback to using the database_id directly
-                  canvasViewDbId = relatedDbId;
-                  console.log(`[API /databases/setup] No matching data_source found, using database_id: ${canvasViewDbId}`);
-                }
-              } catch (searchError) {
-                // If search fails, use the database_id directly
-                canvasViewDbId = relatedDbId;
-                console.log(`[API /databases/setup] Search failed, using database_id: ${canvasViewDbId}`);
-              }
-            }
-          } catch (e) {
-            console.warn('[API /databases/setup] Could not get relation database ID:', e);
-          }
-          break;
-        }
-      }
+      const canvasViewDbId = await findCanvasViewDatabaseId(apiKey, databaseId);
 
       return NextResponse.json({
         success: true,
@@ -117,9 +66,10 @@ export async function POST(request: NextRequest) {
       const createResult = await createCanvasViewDatabase(apiKey, databaseId);
 
       if (createResult.success && createResult.databaseId) {
+        const canvasViewDbId = createResult.dataSourceId || createResult.databaseId;
         return NextResponse.json({
           success: true,
-          canvasViewDbId: createResult.databaseId,
+          canvasViewDbId,
           message: 'Canvas View database created successfully',
         });
       } else {

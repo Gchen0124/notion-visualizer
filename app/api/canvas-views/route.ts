@@ -287,12 +287,16 @@ async function getCanvasViews(notion: Client, canvasViewDbId: string, itemsRelat
     });
 
     console.log(`Fetched ${response.results.length} canvas views from Notion`);
-    console.log(`Using items relation property: "${itemsRelationName}"`);
+    const effectiveItemsRelationName = resolveItemsRelationNameFromProperties(
+      response.results?.[0]?.properties,
+      itemsRelationName
+    );
+    console.log(`Using items relation property: "${effectiveItemsRelationName}"`);
 
     const views: CanvasViewEntry[] = response.results.map((page: any) => {
       const name = page.properties['View Name']?.title?.[0]?.plain_text || '';
       // Use dynamic property name for items relation
-      const itemIds = (page.properties[itemsRelationName]?.relation || []).map((r: any) => r.id);
+      const itemIds = (page.properties[effectiveItemsRelationName]?.relation || []).map((r: any) => r.id);
 
       // Extract viewport data from rich_text properties
       const viewportX = parseFloat(getTextPropertyFromPage(page, 'viewport_x')) || undefined;
@@ -337,6 +341,65 @@ function getTextPropertyFromPage(page: any, propertyName: string): string {
   }
 
   return '';
+}
+
+function resolveItemsRelationNameFromProperties(
+  properties: Record<string, any> | undefined,
+  preferredName: string
+): string {
+  if (!properties) return preferredName;
+  if (properties[preferredName]?.type === 'relation') return preferredName;
+
+  const relationNames = Object.entries(properties)
+    .filter(([, prop]) => (prop as any)?.type === 'relation')
+    .map(([name]) => name);
+
+  if (relationNames.length === 0) return preferredName;
+
+  const itemsCandidate = relationNames.find((name) => name.toLowerCase() === 'items');
+  if (itemsCandidate) return itemsCandidate;
+
+  const taskCandidate = relationNames.find((name) => {
+    const lower = name.toLowerCase();
+    return lower.includes('task') || lower.includes('item') || lower.includes('calendar');
+  });
+  if (taskCandidate) return taskCandidate;
+
+  if (relationNames.length === 1) return relationNames[0];
+  return preferredName;
+}
+
+async function resolveCanvasViewRelationNameOnTaskItem(
+  notion: Client,
+  itemId: string,
+  preferredName: string
+): Promise<string> {
+  try {
+    const itemPage: any = await notion.pages.retrieve({ page_id: itemId });
+    const properties = itemPage.properties || {};
+
+    if (properties[preferredName]?.type === 'relation') {
+      return preferredName;
+    }
+
+    const relationNames = Object.entries(properties)
+      .filter(([, prop]) => (prop as any)?.type === 'relation')
+      .map(([name]) => name);
+
+    if (relationNames.length === 0) return preferredName;
+
+    const canvasCandidate = relationNames.find((name) => name.toLowerCase().includes('canvas'));
+    if (canvasCandidate) return canvasCandidate;
+
+    const viewCandidate = relationNames.find((name) => name.toLowerCase().includes('view'));
+    if (viewCandidate) return viewCandidate;
+
+    if (relationNames.length === 1) return relationNames[0];
+    return preferredName;
+  } catch (error) {
+    console.warn('[saveCanvasView] Could not detect relation property on task item, using fallback:', preferredName);
+    return preferredName;
+  }
 }
 
 // Save a canvas view
@@ -402,6 +465,13 @@ async function saveCanvasView(
     // Step 2: Update each Task Calendar item with position and Canvas View relation
     // This will auto-populate the 'items' property in Canvas View via bidirectional relation
     if (itemPositions && itemPositions.length > 0) {
+      const effectiveCanvasViewRelationName = await resolveCanvasViewRelationNameOnTaskItem(
+        notion,
+        itemPositions[0].id,
+        canvasViewRelationName
+      );
+
+      console.log(`[saveCanvasView] Using Task Calendar relation property: "${effectiveCanvasViewRelationName}"`);
       console.log(`Saving positions for ${itemPositions.length} items and linking to view...`);
 
       const updatePromises = itemPositions.map(async (item) => {
@@ -415,7 +485,7 @@ async function saveCanvasView(
             },
             // Setting Canvas View on Task Calendar will auto-populate 'items' on Canvas View
             // Use dynamic property name based on demo vs personal database
-            [canvasViewRelationName]: {
+            [effectiveCanvasViewRelationName]: {
               relation: [{ id: viewId }],
             },
           };
@@ -448,12 +518,26 @@ async function saveCanvasView(
           });
 
           console.log(`Saved position for item ${item.id}: (${item.x}, ${item.y}) linked to view ${viewId}`);
+          return { success: true as const, itemId: item.id };
         } catch (err) {
           console.error(`Failed to save position for item ${item.id}:`, err);
+          return { success: false as const, itemId: item.id, error: err };
         }
       });
 
-      await Promise.all(updatePromises);
+      const updateResults = await Promise.all(updatePromises);
+      const failedUpdates = updateResults.filter((r) => !r.success);
+
+      if (failedUpdates.length === itemPositions.length) {
+        return {
+          success: false,
+          error: `Failed to save positions for all ${itemPositions.length} items. Check Canvas View relation/property setup.`,
+        };
+      }
+
+      if (failedUpdates.length > 0) {
+        console.warn(`[saveCanvasView] Partial position save: ${failedUpdates.length}/${itemPositions.length} failed`);
+      }
     }
 
     return { success: true, viewId };
@@ -502,8 +586,12 @@ async function getCanvasViewWithItems(
     });
 
     const viewName = viewPage.properties['View Name']?.title?.[0]?.plain_text || '';
+    const effectiveItemsRelationName = resolveItemsRelationNameFromProperties(
+      viewPage.properties,
+      itemsRelationName
+    );
     // Use dynamic property name for items relation
-    const linkedItemIds = (viewPage.properties[itemsRelationName]?.relation || []).map((r: any) => r.id);
+    const linkedItemIds = (viewPage.properties[effectiveItemsRelationName]?.relation || []).map((r: any) => r.id);
 
     // Extract viewport data from the view page
     const viewportX = parseFloat(getTextPropertyFromPage(viewPage, 'viewport_x')) || undefined;
@@ -520,7 +608,7 @@ async function getCanvasViewWithItems(
       };
     }
 
-    console.log(`Fetched view "${viewName}" with ${linkedItemIds.length} linked items, viewport:`, viewport, `(using relation: "${itemsRelationName}")`);
+    console.log(`Fetched view "${viewName}" with ${linkedItemIds.length} linked items, viewport:`, viewport, `(using relation: "${effectiveItemsRelationName}")`);
 
     if (linkedItemIds.length === 0) {
       return {

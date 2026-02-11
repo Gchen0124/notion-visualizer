@@ -1298,6 +1298,41 @@ function CanvasViewInner({ apiKey, dataSourceId, canvasViewDbId: initialCanvasVi
         }
 
         return result.canvasViewDbId;
+      } else if (result.success) {
+        // If setup succeeded but didn't create a DB, we may already have an existing relation.
+        // Try resolving it via checkOnly.
+        const checkResponse = await fetch('/api/databases/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiKey,
+            databaseId: taskCalendarDbId,
+            dataSourceId,
+            checkOnly: true,
+          }),
+        });
+        const checkResult = await checkResponse.json();
+
+        if (checkResult.success && checkResult.canvasViewDbId) {
+          console.log('[CanvasView] Found existing Canvas View database:', checkResult.canvasViewDbId);
+          setCanvasViewDbId(checkResult.canvasViewDbId);
+
+          const configStr = localStorage.getItem('notion_visualizer_config');
+          if (configStr) {
+            try {
+              const config = JSON.parse(configStr);
+              config.databases.canvasViewDbId = checkResult.canvasViewDbId;
+              localStorage.setItem('notion_visualizer_config', JSON.stringify(config));
+            } catch (e) {
+              console.error('[CanvasView] Failed to update config with resolved canvasViewDbId:', e);
+            }
+          }
+
+          return checkResult.canvasViewDbId;
+        }
+
+        console.warn('[CanvasView] Setup succeeded but no Canvas View database was resolved');
+        return null;
       } else {
         console.warn('[CanvasView] Failed to create Canvas View database:', result.error);
         return null;

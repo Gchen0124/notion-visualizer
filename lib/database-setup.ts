@@ -123,6 +123,65 @@ export async function getDatabaseInfo(
 }
 
 /**
+ * Find an existing Canvas View database linked from Task Calendar.
+ *
+ * Returns the preferred data_source_id when possible, or falls back to database_id.
+ */
+export async function findCanvasViewDatabaseId(
+  apiKey: string,
+  taskCalendarDbId: string
+): Promise<string | null> {
+  const notion = new Client({ auth: apiKey, notionVersion: '2025-09-03' });
+
+  try {
+    const taskDb: any = await notion.databases.retrieve({ database_id: taskCalendarDbId });
+
+    const canvasRelationEntry = Object.entries(taskDb.properties || {}).find(
+      ([name, prop]: [string, any]) =>
+        prop?.type === 'relation' && name.toLowerCase().includes('canvas')
+    ) as [string, any] | undefined;
+
+    if (!canvasRelationEntry) {
+      return null;
+    }
+
+    const [relationName, relationProp] = canvasRelationEntry;
+    const relatedDbId = relationProp?.relation?.database_id;
+
+    if (!relatedDbId) {
+      console.warn(`[findCanvasViewDatabaseId] Relation "${relationName}" has no target database_id`);
+      return null;
+    }
+
+    console.log(`[findCanvasViewDatabaseId] Found relation "${relationName}" -> database ${relatedDbId}`);
+
+    try {
+      const searchResponse: any = await notion.search({
+        filter: { property: 'object', value: 'data_source' },
+        page_size: 100,
+      });
+
+      const matchingDs = searchResponse.results.find(
+        (ds: any) => ds.id === relatedDbId || ds.parent?.database_id === relatedDbId
+      );
+
+      if (matchingDs?.id) {
+        console.log(`[findCanvasViewDatabaseId] Resolved data_source_id ${matchingDs.id}`);
+        return matchingDs.id;
+      }
+    } catch (searchError: any) {
+      console.warn('[findCanvasViewDatabaseId] Failed resolving data_source_id:', searchError.message);
+    }
+
+    // Fallback to database_id for compatibility.
+    return relatedDbId;
+  } catch (error: any) {
+    console.error('[findCanvasViewDatabaseId] Error:', error.message);
+    return null;
+  }
+}
+
+/**
  * Validate if a database has all required canvas properties
  */
 export function validateDatabaseSchema(database: DatabaseInfo): ValidationResult {
@@ -417,12 +476,17 @@ export async function setupDatabase(
 
     let canvasViewDbId: string | undefined;
 
-    if (!hasCanvasViewRelation) {
+    if (hasCanvasViewRelation) {
+      // Important: return existing Canvas View DB ID so the app can save views to Notion.
+      canvasViewDbId = await findCanvasViewDatabaseId(apiKey, databaseId) || undefined;
+      console.log('[setupDatabase] Existing Canvas View DB ID:', canvasViewDbId || 'not resolved');
+    } else {
       console.log('[setupDatabase] Canvas View relation not found, creating database...');
       const createResult = await createCanvasViewDatabase(apiKey, databaseId);
 
       if (createResult.success && createResult.databaseId) {
-        canvasViewDbId = createResult.databaseId;
+        // Prefer data_source_id for Notion API 2025-09-03 query operations.
+        canvasViewDbId = createResult.dataSourceId || createResult.databaseId;
       } else {
         // Non-fatal: user can still use the app without saved views
         console.warn(
